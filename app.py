@@ -1112,7 +1112,7 @@ def period_selector() -> Tuple[date, date, str]:
 # UI: ログイン
 # =========================================================
 def render_login():
-    st.sidebar.markdown("### 🔐 ログイン（簡易）")
+    st.sidebar.markdown("### 🔐 ログイン")
     username = st.sidebar.text_input("ユーザー名", value="", placeholder="例：suzuki")
     pin = st.sidebar.text_input("PIN（4〜8桁推奨）", value="", type="password")
 
@@ -2280,4 +2280,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
