@@ -1111,55 +1111,100 @@ def period_selector() -> Tuple[date, date, str]:
 # =========================================================
 # UI: ログイン
 # =========================================================
-def render_login():
-    st.sidebar.markdown("### 🔐 ログイン")
-    username = st.sidebar.text_input("ユーザー名", value="", placeholder="例：suzuki")
-    pin = st.sidebar.text_input("PIN（4〜8桁推奨）", value="", type="password")
+def render_login(in_sidebar: bool = True):
+    """
+    ログインUIを表示（サイドバーまたはexpander内で使用可能）
+    """
+    container = st.sidebar if in_sidebar else st
+    
+    container.markdown("### 🔐 ログイン（簡易）")
+    username = container.text_input("ユーザー名", value="", placeholder="例：suzuki", key="login_username")
+    pin = container.text_input("PIN（4〜8桁推奨）", value="", type="password", key="login_pin")
 
-    col1, col2 = st.sidebar.columns(2)
+    col1, col2 = container.columns(2)
     with col1:
-        if st.sidebar.button("ログイン", use_container_width=True):
+        if container.button("ログイン", use_container_width=True, key="login_btn"):
             if not username.strip() or not pin.strip():
-                st.sidebar.error("ユーザー名とPINを入力してください。")
+                container.error("ユーザー名とPINを入力してください。")
                 return
             user = get_user_by_username(username)
             if not user:
-                st.sidebar.error("ユーザーが存在しません（新規登録してください）。")
+                container.error("ユーザーが存在しません（新規登録してください）。")
                 return
             if user["pin_hash"] != pin_hash(username.strip(), pin.strip()):
-                st.sidebar.error("PINが違います。")
+                container.error("PINが違います。")
                 return
             st.session_state["user_id"] = int(user["id"])
             st.session_state["username"] = user["username"]
+            st.session_state.pop("is_guest", None)  # ゲストフラグをクリア
             st.rerun()
 
     with col2:
-        if st.sidebar.button("新規登録", use_container_width=True):
+        if container.button("新規登録", use_container_width=True, key="register_btn"):
             if not username.strip() or not pin.strip():
-                st.sidebar.error("ユーザー名とPINを入力してください。")
+                container.error("ユーザー名とPINを入力してください。")
                 return
             user = get_user_by_username(username)
             if user:
-                st.sidebar.error("そのユーザー名は既に使われています。")
+                container.error("そのユーザー名は既に使われています。")
                 return
             try:
                 uid = create_user(username, pin)
             except IntegrityError as e:
-                st.sidebar.error(f"登録に失敗しました（DB互換の可能性）：{e}")
+                container.error(f"登録に失敗しました（DB互換の可能性）：{e}")
                 return
             st.session_state["user_id"] = int(uid)
             st.session_state["username"] = username.strip()
+            st.session_state.pop("is_guest", None)  # ゲストフラグをクリア
             st.rerun()
 
 
 def render_sidebar_after_login(user_id: int):
-    st.sidebar.markdown("### 🔓 ログイン中")
-    st.sidebar.success(f"ユーザー：{st.session_state.get('username','')}")
+    is_guest = st.session_state.get("is_guest", False)
+    username = st.session_state.get('username', '')
+    
+    if is_guest:
+        st.sidebar.markdown("### 👤 試用中（ゲスト）")
+        st.sidebar.info(f"ユーザー：{username}")
+        st.sidebar.warning("💡 データを保存するには、ユーザー名とPINを設定してログインしてください。")
+        
+        with st.sidebar.expander("🔐 ログイン設定（データ保存用）", expanded=False):
+            new_username = st.text_input("ユーザー名", value="", placeholder="例：suzuki", key="guest_set_username")
+            new_pin = st.text_input("PIN（4〜8桁推奨）", value="", type="password", key="guest_set_pin")
+            
+            if st.button("設定してログイン", use_container_width=True, key="guest_register_btn"):
+                if not new_username.strip() or not new_pin.strip():
+                    st.error("ユーザー名とPINを入力してください。")
+                else:
+                    # 既存ユーザー名チェック
+                    existing = get_user_by_username(new_username)
+                    if existing:
+                        st.error("そのユーザー名は既に使われています。")
+                    else:
+                        # ゲストユーザーを正式ユーザーに変更（ユーザー名とPINを更新）
+                        try:
+                            # 現在のゲストユーザーを削除して新規作成
+                            # （簡易実装：実際はUPDATEが理想だが、ここでは新規作成）
+                            uid = create_user(new_username.strip(), new_pin.strip())
+                            # データ移行（簡易版：ここでは新規ユーザーとして開始）
+                            st.session_state["user_id"] = int(uid)
+                            st.session_state["username"] = new_username.strip()
+                            st.session_state.pop("is_guest", None)
+                            st.success("ログイン設定が完了しました！")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"設定に失敗しました：{e}")
+    else:
+        st.sidebar.markdown("### 🔓 ログイン中")
+        st.sidebar.success(f"ユーザー：{username}")
+    
     if st.sidebar.button("ログアウト", use_container_width=True):
         st.session_state.pop("user_id", None)
         st.session_state.pop("username", None)
         st.session_state.pop("user_api_key", None)
         st.session_state.pop("chat_history", None)
+        st.session_state.pop("is_guest", None)
+        st.session_state.pop("onboarding_step", None)
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -1745,6 +1790,46 @@ def render_ai_section(user_id: int, goal: float, fixed: float, user_key: str):
 # =========================================================
 def render_main(user_id: int, start: date, end: date, goal: float, fixed: float, user_key: str):
     st.markdown(f"## {APP_TITLE}")
+    
+    # オンボーディング（ゲストユーザー向け）
+    is_guest = st.session_state.get("is_guest", False)
+    onboarding_step = st.session_state.get("onboarding_step", 0)
+    
+    if is_guest and onboarding_step > 0:
+        today = today_date()
+        m_start, m_end = month_range(today)
+        m_earn = load_earnings(user_id, m_start, m_end)
+        m_exp = load_expenses(user_id, m_start, m_end)
+        
+        with st.container(border=True):
+            st.markdown("### 🎯 3分で終わる（試用ガイド）")
+            
+            step1_done = not m_earn.empty
+            step2_done = not m_exp.empty
+            step3_done = step1_done and step2_done
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                status1 = "✅" if step1_done else "①"
+                st.markdown(f"**{status1} 収益を1件追加**")
+                if step1_done:
+                    st.caption("完了！")
+            with col2:
+                status2 = "✅" if step2_done else "②"
+                st.markdown(f"**{status2} 経費を1件追加**")
+                if step2_done:
+                    st.caption("完了！")
+            with col3:
+                status3 = "✅" if step3_done else "③"
+                st.markdown(f"**{status3} 結果を見る**")
+                if step3_done:
+                    st.caption("完了！")
+            
+            if step3_done:
+                st.success("🎉 試用完了！データを保存するには、サイドバーからログイン（ユーザー名/PIN）を設定してください。")
+                if st.button("オンボーディングを閉じる", key="close_onboarding"):
+                    st.session_state["onboarding_step"] = 0
+                    st.rerun()
 
     st.subheader("➕ 収益を追加")
     with st.container(border=True):
@@ -2260,19 +2345,67 @@ def main():
 
     user_id = st.session_state.get("user_id", None)
     if not user_id:
-        render_login()
-        st.markdown(f"## {APP_TITLE}")
-        st.info("📱スマホの方：左上の「>>」を押すとログイン欄が出ます。")
-        st.info("左のサイドバーからログイン（または新規登録）してください。")
+        # サイドバー：ログイン（目立たない位置づけ）
+        with st.sidebar:
+            with st.expander("🔐 ログイン（既存ユーザー）", expanded=False):
+                render_login(in_sidebar=False)  # expander内なのでsidebar=False
+        
+        # メイン画面：ヒーロー領域（価値提案＋CTA）
+        st.markdown(f"# {APP_TITLE}")
+        
+        # サブコピー
         st.markdown(
             """
-**最初にやること（3分）**
-1. ユーザー登録 → ログイン  
-2. 収益を1件追加（例：会社｜給料｜200,000円）  
-3. 経費を1件追加（例：サブスク｜1,500円）  
-4. 資産（現金/株式/その他）を入力して保存（任意）  
-"""
+            <div style='font-size: 20px; font-weight: 500; color: var(--rn-subtext); margin-top: -8px; margin-bottom: 24px; line-height: 1.6;'>
+            収支・副業・SNS収益を "次にやる一手" まで可視化
+            </div>
+            """,
+            unsafe_allow_html=True
         )
+        
+        # ベネフィット箇条書き
+        st.markdown(
+            """
+            <div style='margin-bottom: 32px;'>
+            <ul style='list-style: none; padding-left: 0;'>
+            <li style='margin-bottom: 12px; font-size: 16px;'>✓ 収入/支出を一瞬で整理</li>
+            <li style='margin-bottom: 12px; font-size: 16px;'>✓ ムダをAIが1行で指摘</li>
+            <li style='margin-bottom: 12px; font-size: 16px;'>✓ 改善アクションが分かる</li>
+            </ul>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        # CTA（1つだけ、強調）
+        col_cta, _ = st.columns([0.4, 0.6])
+        with col_cta:
+            if st.button("今すぐ分析する", type="primary", use_container_width=True):
+                import random
+                import string
+                # ゲストユーザー名を自動生成
+                guest_username = f"guest_{''.join(random.choices(string.ascii_lowercase + string.digits, k=8))}"
+                guest_pin = "1234"  # 簡単なPIN
+                try:
+                    uid = create_user(guest_username, guest_pin)
+                    st.session_state["user_id"] = int(uid)
+                    st.session_state["username"] = guest_username
+                    st.session_state["is_guest"] = True  # ゲストフラグ
+                    st.session_state["onboarding_step"] = 1  # オンボーディング開始
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"試用開始に失敗しました：{e}")
+        
+        # 補足（小さく）
+        st.markdown(
+            """
+            <div style='margin-top: 16px; font-size: 13px; color: var(--rn-subtext);'>
+            登録は後でOK / データは外部公開されません
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
         return
 
     start, end, goal, fixed, user_key = render_sidebar_after_login(int(user_id))
@@ -2280,5 +2413,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
