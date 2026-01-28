@@ -1881,8 +1881,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
         # 収益追加直後の成功メッセージ＋次アクション（ゲストユーザー時のみ）
         if st.session_state.get("is_guest", False) and st.session_state.get("just_added_earning", False):
             st.markdown("---")
-            # 成功メッセージにIDを付与（スクロール用）
-            st.markdown('<div id="success-earning"></div>', unsafe_allow_html=True)
+            # 下側の成功メッセージに一意なIDを付与（上部の成功メッセージと区別）
+            st.markdown('<div id="income_success_anchor_bottom"></div>', unsafe_allow_html=True)
             with st.container(border=True):
                 st.success("✅ 収益を1件追加しました！")
                 st.markdown("**次：経費を1件追加（約1分）**")
@@ -1896,37 +1896,21 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     <script>
                     (function() {
                         // 複数回試行して確実にスクロール（Streamlitのレンダリングタイミングに対応）
-                        function scrollToSuccess() {
-                            const element = document.getElementById('success-earning');
-                            if (element) {
-                                // スマホのビューポート高さを考慮
-                                const viewportHeight = window.innerHeight;
-                                const headerOffset = 100; // スマホヘッダー + 余白
-                                
-                                // 要素の位置を取得
-                                const rect = element.getBoundingClientRect();
-                                const elementTop = rect.top + window.pageYOffset;
-                                
-                                // ビューポートの上部から適切な距離（100px）に配置
-                                const scrollPosition = elementTop - headerOffset;
-                                
-                                window.scrollTo({
-                                    top: Math.max(0, scrollPosition), // 負の値にならないように
-                                    behavior: 'smooth'
+                        function scrollToNextAction() {
+                            // 優先順位1: 経費入力フォームの見出し直前
+                            let targetElement = document.getElementById('expense_section_anchor');
+                            
+                            // 優先順位2: 下側の成功メッセージ
+                            if (!targetElement) {
+                                targetElement = document.getElementById('income_success_anchor_bottom');
+                            }
+                            
+                            if (targetElement) {
+                                // scrollIntoViewを使用（スマホ対応）
+                                targetElement.scrollIntoView({
+                                    behavior: 'smooth',
+                                    block: 'start'
                                 });
-                                
-                                // スクロール後の位置確認（念のため）
-                                setTimeout(function() {
-                                    const afterScroll = element.getBoundingClientRect().top;
-                                    // まだ視界外の場合は再調整
-                                    if (afterScroll < 50 || afterScroll > viewportHeight - 200) {
-                                        window.scrollTo({
-                                            top: elementTop - headerOffset,
-                                            behavior: 'smooth'
-                                        });
-                                    }
-                                }, 500);
-                                
                                 return true; // スクロール成功
                             }
                             return false; // 要素が見つからない
@@ -1934,10 +1918,10 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                         
                         // 初回試行（300ms後）
                         setTimeout(function() {
-                            if (!scrollToSuccess()) {
+                            if (!scrollToNextAction()) {
                                 // 要素が見つからない場合は再試行（600ms後）
                                 setTimeout(function() {
-                                    scrollToSuccess();
+                                    scrollToNextAction();
                                 }, 300);
                             }
                         }, 300);
@@ -1954,6 +1938,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
 
+    # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用）
+    st.markdown('<div id="expense_section_anchor"></div>', unsafe_allow_html=True)
     st.subheader("➖ 経費を追加")
     with st.container(border=True):
         c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
