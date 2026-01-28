@@ -1872,19 +1872,47 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
         if st.button("収益を追加", key="add_earning"):
             insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-            # ゲストユーザーの場合、追加直後フラグを設定
+            # ゲストユーザーの場合、追加直後フラグとスクロールフラグを設定
             if st.session_state.get("is_guest", False):
                 st.session_state["just_added_earning"] = True
+                st.session_state["scroll_to_earning"] = True
             st.rerun()
         
         # 収益追加直後の成功メッセージ＋次アクション（ゲストユーザー時のみ）
         if st.session_state.get("is_guest", False) and st.session_state.get("just_added_earning", False):
             st.markdown("---")
+            # 成功メッセージにIDを付与（スクロール用）
+            st.markdown('<div id="success-earning"></div>', unsafe_allow_html=True)
             with st.container(border=True):
                 st.success("✅ 収益を1件追加しました！")
                 st.markdown("**次：経費を1件追加（約1分）**")
                 # 経費セクションへの誘導（下にスクロール）
                 st.markdown("👇 下の「➖ 経費を追加」セクションへ")
+            
+            # 自動スクロール（スクロールフラグが立っている場合のみ）
+            if st.session_state.get("scroll_to_earning", False):
+                st.markdown(
+                    """
+                    <script>
+                    (function() {
+                        setTimeout(function() {
+                            const element = document.getElementById('success-earning');
+                            if (element) {
+                                const yOffset = -80; // ヘッダー分のオフセット（スマホ対応）
+                                const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                                window.scrollTo({
+                                    top: y,
+                                    behavior: 'smooth'
+                                });
+                            }
+                        }, 300); // Streamlitのレンダリング完了を待つ
+                    })();
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.session_state["scroll_to_earning"] = False
+            
             # フラグをクリア（次回表示時は表示しない）
             st.session_state["just_added_earning"] = False
 
@@ -1915,14 +1943,17 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
         if st.button("経費を追加", key="add_expense"):
             insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-            # ゲストユーザーの場合、追加直後フラグを設定
+            # ゲストユーザーの場合、追加直後フラグとスクロールフラグを設定
             if st.session_state.get("is_guest", False):
                 st.session_state["just_added_expense"] = True
+                st.session_state["scroll_to_expense"] = True
             st.rerun()
         
         # 経費追加直後の成功メッセージ＋結果を見るボタン（ゲストユーザー時のみ）
         if st.session_state.get("is_guest", False) and st.session_state.get("just_added_expense", False):
             st.markdown("---")
+            # 成功メッセージにIDを付与（スクロール用）
+            st.markdown('<div id="success-expense"></div>', unsafe_allow_html=True)
             with st.container(border=True):
                 st.success("✅ 経費を1件追加しました！")
                 st.markdown("**結果を見る準備ができました**")
@@ -1930,7 +1961,33 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
                     st.session_state["show_results_section"] = True
                     st.session_state["just_added_expense"] = False
+                    st.session_state["scroll_to_expense"] = False
                     st.rerun()
+            
+            # 自動スクロール（スクロールフラグが立っている場合のみ）
+            if st.session_state.get("scroll_to_expense", False):
+                st.markdown(
+                    """
+                    <script>
+                    (function() {
+                        setTimeout(function() {
+                            const element = document.getElementById('success-expense');
+                            if (element) {
+                                const yOffset = -80; // ヘッダー分のオフセット（スマホ対応）
+                                const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                                window.scrollTo({
+                                    top: y,
+                                    behavior: 'smooth'
+                                });
+                            }
+                        }, 300); // Streamlitのレンダリング完了を待つ
+                    })();
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.session_state["scroll_to_expense"] = False
+            
             # フラグをクリア（次回表示時は表示しない）
             if not st.session_state.get("show_results_section", False):
                 st.session_state["just_added_expense"] = False
