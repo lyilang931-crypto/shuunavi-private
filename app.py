@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple, Callable, Any
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError, IntegrityError
 
@@ -1786,6 +1787,52 @@ def render_ai_section(user_id: int, goal: float, fixed: float, user_key: str):
 
 
 # =========================================================
+# UI: スクロール用ユーティリティ（確実に動作するように）
+# =========================================================
+def scroll_to_section(anchor_id: str, delay_ms: int = 300):
+    """
+    指定したアンカーIDのセクションへ確実にスクロール（スマホ対応）
+    
+    Args:
+        anchor_id: スクロール先のアンカーID（例：「expense-section」）
+        delay_ms: スクロール実行までの遅延（ミリ秒、Streamlitのレンダリング完了を待つ）
+    """
+    scroll_js = f"""
+    <script>
+    (function() {{
+        function scrollToTarget() {{
+            const element = document.getElementById('{anchor_id}');
+            if (element) {{
+                // スマホ対応：ヘッダー分のオフセットを考慮
+                const headerOffset = 80;
+                const elementPosition = element.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+                
+                window.scrollTo({{
+                    top: Math.max(0, offsetPosition),
+                    behavior: 'smooth'
+                }});
+                return true;
+            }}
+            return false;
+        }}
+        
+        // 初回試行
+        setTimeout(function() {{
+            if (!scrollToTarget()) {{
+                // 要素が見つからない場合は再試行
+                setTimeout(function() {{
+                    scrollToTarget();
+                }}, 200);
+            }}
+        }}, {delay_ms});
+    }})();
+    </script>
+    """
+    components.html(scroll_js, height=0)
+
+
+# =========================================================
 # UI: 成功メッセージ＋次アクションCTA（共通関数）
 # =========================================================
 def render_success_with_next_action(
@@ -1795,6 +1842,7 @@ def render_success_with_next_action(
     cta_button_key: str,
     target_anchor_id: str,
     flag_key: str,
+    scroll_flag_key: str,
     on_cta_click_callback: Optional[Callable] = None
 ):
     """
@@ -1805,11 +1853,12 @@ def render_success_with_next_action(
         next_action_label: 次アクションの説明（例：「次：経費を1件追加（約1分）」）
         cta_button_label: CTAボタンのラベル（例：「✍️ 経費入力セクションへ移動」）
         cta_button_key: CTAボタンのキー（一意である必要がある）
-        target_anchor_id: スクロール先のアンカーID（例：「expense_section_anchor」）
+        target_anchor_id: スクロール先のアンカーID（例：「expense-section」）
         flag_key: 成功フラグのキー（例：「income_added」）
+        scroll_flag_key: スクロールフラグのキー（例：「scroll_to_expense」）
         on_cta_click_callback: CTA押下時の追加処理（オプション）
     """
-    # トーストで即座にフィードバック（スクロール依存ゼロ）
+    # トーストで即座にフィードバック（スクロール依存ゼロ・最優先）
     st.toast(success_message, icon="✅")
     
     # 画面上部に成功メッセージ＋CTAを表示（必ず見える位置）
@@ -1819,25 +1868,8 @@ def render_success_with_next_action(
         
         # CTAボタン（ユーザーが押した時だけスクロール）
         if st.button(cta_button_label, type="primary", use_container_width=True, key=cta_button_key):
-            # スクロール処理
-            st.markdown(
-                f"""
-                <script>
-                (function() {{
-                    setTimeout(function() {{
-                        const element = document.getElementById('{target_anchor_id}');
-                        if (element) {{
-                            element.scrollIntoView({{
-                                behavior: 'smooth',
-                                block: 'start'
-                            }});
-                        }}
-                    }}, 100);
-                }})();
-                </script>
-                """,
-                unsafe_allow_html=True
-            )
+            # スクロールフラグを設定（次回レンダリングでスクロール実行）
+            st.session_state[scroll_flag_key] = True
             
             # 追加処理があれば実行
             if on_cta_click_callback:
@@ -1846,6 +1878,11 @@ def render_success_with_next_action(
             # フラグをクリア
             st.session_state[flag_key] = False
             st.rerun()
+    
+    # スクロールフラグが立っている場合はスクロール実行
+    if st.session_state.get(scroll_flag_key, False):
+        scroll_to_section(target_anchor_id, delay_ms=300)
+        st.session_state[scroll_flag_key] = False
 
 
 # =========================================================
@@ -1914,6 +1951,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     # 画面上部に成功メッセージ用のplaceholderを配置（必ず見える位置・収益用）
     top_success_placeholder = st.empty()
     
+    # 収益セクションのアンカーを配置（スクロールターゲット用・確実なID）
+    st.markdown('<div id="income-section"></div>', unsafe_allow_html=True)
+    
     st.subheader("➕ 収益を追加")
     with st.container(border=True):
         c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
@@ -1957,8 +1997,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 next_action_label="次：経費を1件追加（約1分）",
                 cta_button_label="✍️ 経費入力セクションへ移動",
                 cta_button_key="goto_expense_btn",
-                target_anchor_id="expense_section_anchor",
-                flag_key="income_added"
+                target_anchor_id="expense-section",
+                flag_key="income_added",
+                scroll_flag_key="scroll_to_expense"
             )
     else:
         top_success_placeholder.empty()
@@ -1966,8 +2007,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
 
-    # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用）
-    st.markdown('<div id="expense_section_anchor"></div>', unsafe_allow_html=True)
+    # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用・確実なID）
+    st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
     
     # 画面上部に成功メッセージ用のplaceholderを配置（必ず見える位置・経費用）
     top_expense_success_placeholder = st.empty()
@@ -2012,8 +2053,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 next_action_label="結果を見る準備ができました",
                 cta_button_label="📊 結果を見る",
                 cta_button_key="view_results_btn",
-                target_anchor_id="results_section_anchor",
+                target_anchor_id="results-section",
                 flag_key="expense_added",
+                scroll_flag_key="scroll_to_results",
                 on_cta_click_callback=show_results_callback
             )
     else:
@@ -2061,8 +2103,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
         
         st.markdown("---")
         
-        # 結果セクションのアンカーを配置（スクロールターゲット用）
-        st.markdown('<div id="results_section_anchor"></div>', unsafe_allow_html=True)
+        # 結果セクションのアンカーを配置（スクロールターゲット用・確実なID）
+        st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
         
         # 詳細結果（今月の状況）
         st.subheader("📊 今月の状況（詳細）")
@@ -2353,6 +2395,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     # ゲストユーザーで結果セクションを既に表示している場合はスキップ
     # -------------------------
     if not (is_guest and show_results):
+        # 結果セクションのアンカーを配置（スクロールターゲット用・確実なID）
+        st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
         st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
 
         today = today_date()
