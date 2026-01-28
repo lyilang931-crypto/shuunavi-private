@@ -1872,8 +1872,21 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
         if st.button("収益を追加", key="add_earning"):
             insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-            st.success("収益を追加しました。")
+            # ゲストユーザーの場合、追加直後フラグを設定
+            if st.session_state.get("is_guest", False):
+                st.session_state["just_added_earning"] = True
             st.rerun()
+        
+        # 収益追加直後の成功メッセージ＋次アクション（ゲストユーザー時のみ）
+        if st.session_state.get("is_guest", False) and st.session_state.get("just_added_earning", False):
+            st.markdown("---")
+            with st.container(border=True):
+                st.success("✅ 収益を1件追加しました！")
+                st.markdown("**次：経費を1件追加（約1分）**")
+                # 経費セクションへの誘導（下にスクロール）
+                st.markdown("👇 下の「➖ 経費を追加」セクションへ")
+            # フラグをクリア（次回表示時は表示しない）
+            st.session_state["just_added_earning"] = False
 
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
@@ -1902,11 +1915,103 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
         if st.button("経費を追加", key="add_expense"):
             insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-            st.success("経費を追加しました。")
+            # ゲストユーザーの場合、追加直後フラグを設定
+            if st.session_state.get("is_guest", False):
+                st.session_state["just_added_expense"] = True
             st.rerun()
+        
+        # 経費追加直後の成功メッセージ＋結果を見るボタン（ゲストユーザー時のみ）
+        if st.session_state.get("is_guest", False) and st.session_state.get("just_added_expense", False):
+            st.markdown("---")
+            with st.container(border=True):
+                st.success("✅ 経費を1件追加しました！")
+                st.markdown("**結果を見る準備ができました**")
+                # 結果セクションへのジャンプボタン
+                if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
+                    st.session_state["show_results_section"] = True
+                    st.session_state["just_added_expense"] = False
+                    st.rerun()
+            # フラグをクリア（次回表示時は表示しない）
+            if not st.session_state.get("show_results_section", False):
+                st.session_state["just_added_expense"] = False
 
     with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
         render_recent_expenses_edit_delete(user_id, start, end, limit=3)
+
+    # ゲストユーザーで結果表示フラグが立っている場合、結果セクションをここに表示
+    is_guest = st.session_state.get("is_guest", False)
+    show_results = st.session_state.get("show_results_section", False)
+    
+    if is_guest and show_results:
+        st.markdown("---")
+        st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
+        
+        # ミニ結果（最上部に大きく表示）
+        today = today_date()
+        m_start, m_end = month_range(today)
+        m_earn = load_earnings(user_id, m_start, m_end)
+        m_exp = load_expenses(user_id, m_start, m_end)
+        
+        income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
+        expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
+        profit = income - expense
+        
+        with st.container(border=True):
+            st.markdown("### 📊 結果（今月の収支）")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("収益", yen(income), delta=None)
+            with col2:
+                st.metric("経費", yen(expense), delta=None)
+            with col3:
+                profit_color = "#2e7d32" if profit >= 0 else "#c62828"
+                st.markdown(
+                    f"<div style='text-align: center;'><div style='font-size: 12px; color: var(--rn-subtext); margin-bottom: 4px;'>利益</div><div style='font-size: 28px; font-weight: 900; color: {profit_color};'>{yen(profit)}</div></div>",
+                    unsafe_allow_html=True
+                )
+            
+            if profit < 0:
+                st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
+            else:
+                st.success("✅ 今月は黒字です")
+        
+        st.markdown("---")
+        
+        # 詳細結果（今月の状況）
+        st.subheader("📊 今月の状況（詳細）")
+        st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
+        
+        # 前月
+        prev_last_day = m_start - timedelta(days=1)
+        prev_start, prev_end = month_range(prev_last_day)
+        p_earn = load_earnings(user_id, prev_start, prev_end)
+        p_exp = load_expenses(user_id, prev_start, prev_end)
+        prev_profit = (float(p_earn["円換算"].sum()) if not p_earn.empty else 0.0) - (float(p_exp["円換算"].sum()) if not p_exp.empty else 0.0)
+        delta_profit = profit - prev_profit
+        
+        remain_to_goal = max(0.0, float(goal) - float(profit))
+        achieve = 0.0
+        if float(goal) > 0:
+            achieve = max(0.0, (profit / float(goal)) * 100.0)
+        
+        r1c1, r1c2, r1c3 = st.columns(3)
+        r1c1.metric("収益", yen(income))
+        r1c2.metric("経費", yen(expense))
+        r1c3.metric("利益", yen(profit))
+        
+        r2c1, r2c2 = st.columns(2)
+        r2c1.metric("目標まで（利益）", yen(remain_to_goal))
+        r2c2.metric("達成率（利益）", f"{int(achieve)}%")
+        
+        st.markdown(
+            f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(delta_profit, prev_profit, big=True)}</div>",
+            unsafe_allow_html=True,
+        )
+        
+        st.markdown("---")
+        
+        # 試用完了メッセージ（控えめに）
+        st.info("💡 データを保存するには、サイドバーからログイン（ユーザー名/PIN）を設定してください。")
 
     with st.expander("🧾 収益一覧（編集・削除）", expanded=False):
         earn_df= load_earnings(user_id, start, end)
@@ -2158,53 +2263,54 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
     # -------------------------
     # 今月の状況（矢印・色を自前HTMLで確実に）
+    # ゲストユーザーで結果セクションを既に表示している場合はスキップ
     # -------------------------
-    st.subheader("📊 今月の状況（ひと目で確認）")
-    st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
+    if not (is_guest and show_results):
+        st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
 
-    today = today_date()
-    m_start, m_end = month_range(today)
-    m_earn = load_earnings(user_id, m_start, m_end)
-    m_exp = load_expenses(user_id, m_start, m_end)
+        today = today_date()
+        m_start, m_end = month_range(today)
+        m_earn = load_earnings(user_id, m_start, m_end)
+        m_exp = load_expenses(user_id, m_start, m_end)
 
-    income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
-    expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
-    profit = income - expense
+        income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
+        expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
+        profit = income - expense
 
-    # 前月
-    prev_last_day = m_start - timedelta(days=1)
-    prev_start, prev_end = month_range(prev_last_day)
-    p_earn = load_earnings(user_id, prev_start, prev_end)
-    p_exp = load_expenses(user_id, prev_start, prev_end)
-    prev_profit = (float(p_earn["円換算"].sum()) if not p_earn.empty else 0.0) - (float(p_exp["円換算"].sum()) if not p_exp.empty else 0.0)
+        # 前月
+        prev_last_day = m_start - timedelta(days=1)
+        prev_start, prev_end = month_range(prev_last_day)
+        p_earn = load_earnings(user_id, prev_start, prev_end)
+        p_exp = load_expenses(user_id, prev_start, prev_end)
+        prev_profit = (float(p_earn["円換算"].sum()) if not p_earn.empty else 0.0) - (float(p_exp["円換算"].sum()) if not p_exp.empty else 0.0)
 
-    delta_profit = profit - prev_profit
+        delta_profit = profit - prev_profit
 
-    remain_to_goal = max(0.0, float(goal) - float(profit))
-    achieve = 0.0
-    if float(goal) > 0:
-        achieve = max(0.0, (profit / float(goal)) * 100.0)
+        remain_to_goal = max(0.0, float(goal) - float(profit))
+        achieve = 0.0
+        if float(goal) > 0:
+            achieve = max(0.0, (profit / float(goal)) * 100.0)
 
-    r1c1, r1c2, r1c3 = st.columns(3)
-    r1c1.metric("収益", yen(income))
-    r1c2.metric("経費", yen(expense))
-    r1c3.metric("利益", yen(profit))
+        r1c1, r1c2, r1c3 = st.columns(3)
+        r1c1.metric("収益", yen(income))
+        r1c2.metric("経費", yen(expense))
+        r1c3.metric("利益", yen(profit))
 
-    r2c1, r2c2 = st.columns(2)
-    r2c1.metric("目標まで（利益）", yen(remain_to_goal))
-    r2c2.metric("達成率（利益）", f"{int(achieve)}%")
+        r2c1, r2c2 = st.columns(2)
+        r2c1.metric("目標まで（利益）", yen(remain_to_goal))
+        r2c2.metric("達成率（利益）", f"{int(achieve)}%")
 
-    st.markdown(
-        f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(delta_profit, prev_profit, big=True)}</div>",
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(delta_profit, prev_profit, big=True)}</div>",
+            unsafe_allow_html=True,
+        )
 
-    if profit < 0:
-        st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
-    else:
-        st.success("✅ 今月は黒字です")
+        if profit < 0:
+            st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
+        else:
+            st.success("✅ 今月は黒字です")
 
-    st.markdown("---")
+        st.markdown("---")
 
 
     # -------------------------
@@ -2431,4 +2537,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
