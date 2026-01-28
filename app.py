@@ -1892,6 +1892,28 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
         st.session_state["step"] = "income"
     
     # =========================================================
+    # スクロール位置の復元（rerun後に実行・収益/経費追加時の自動スクロール防止）
+    # =========================================================
+    restore_scroll_pos = st.session_state.get("restore_scroll_pos", False)
+    if restore_scroll_pos:
+        # localStorageからスクロール位置を読み込んで復元するJavaScript
+        restore_js = """
+        <script>
+        (function() {
+            setTimeout(function() {
+                const savedPos = localStorage.getItem('streamlit_scroll_pos');
+                if (savedPos !== null) {
+                    window.scrollTo(0, parseInt(savedPos, 10));
+                    localStorage.removeItem('streamlit_scroll_pos');
+                }
+            }, 100);
+        })();
+        </script>
+        """
+        components.html(restore_js, height=0)
+        st.session_state["restore_scroll_pos"] = False  # 復元後はクリア
+    
+    # =========================================================
     # 成功メッセージのトースト表示（ページ最上部・スクロール不要で必ず見える）
     # =========================================================
     # 収益追加成功のトースト
@@ -1905,7 +1927,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
         st.session_state["toast_expense"] = False
     
     # =========================================================
-    # スクロール処理（rerun後に実行される構造）
+    # スクロール処理（rerun後に実行される構造・明示的なスクロール移動のみ）
     # =========================================================
     scroll_target = st.session_state.get("scroll_target", None)
     if scroll_target:
@@ -2016,10 +2038,22 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             
             # 送信ボタン
             if st.button("収益を追加", key="add_earning", use_container_width=True):
+                # 現在のスクロール位置をlocalStorageに保存（rerun後に復元するため）
+                save_scroll_pos_js = """
+                <script>
+                (function() {
+                    const scrollPos = window.pageYOffset || document.documentElement.scrollTop;
+                    localStorage.setItem('streamlit_scroll_pos', scrollPos.toString());
+                })();
+                </script>
+                """
+                components.html(save_scroll_pos_js, height=0)
+                
                 insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
                 st.session_state["toast_revenue"] = True
                 st.session_state["step"] = "income_done"  # step制：収益追加成功
                 st.session_state["e_amt_value"] = 0.0
+                st.session_state["restore_scroll_pos"] = True  # スクロール位置復元フラグ
                 st.rerun()
         else:
             # ログイン後：全項目表示（既存のフォーム）
@@ -2057,6 +2091,17 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             
             # 送信ボタン（1カラム）
             if st.button("収益を追加", key="add_earning", use_container_width=True):
+                # 現在のスクロール位置をlocalStorageに保存（rerun後に復元するため）
+                save_scroll_pos_js = """
+                <script>
+                (function() {
+                    const scrollPos = window.pageYOffset || document.documentElement.scrollTop;
+                    localStorage.setItem('streamlit_scroll_pos', scrollPos.toString());
+                })();
+                </script>
+                """
+                components.html(save_scroll_pos_js, height=0)
+                
                 insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
                 # トーストフラグを設定（ページ最上部で表示・追加直後に必ず見える）
                 st.session_state["toast_revenue"] = True
@@ -2064,6 +2109,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 st.session_state["step"] = "income_done"
                 # フォーム値をリセット（金額を0に）
                 st.session_state["e_amt_value"] = 0.0
+                st.session_state["restore_scroll_pos"] = True  # スクロール位置復元フラグ
                 st.rerun()
     
     # =========================================================
@@ -2156,11 +2202,23 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             
             # 送信ボタン（1カラム）
             if st.button("経費を追加", key="add_expense", use_container_width=True):
+                # 現在のスクロール位置をlocalStorageに保存（rerun後に復元するため）
+                save_scroll_pos_js = """
+                <script>
+                (function() {
+                    const scrollPos = window.pageYOffset || document.documentElement.scrollTop;
+                    localStorage.setItem('streamlit_scroll_pos', scrollPos.toString());
+                })();
+                </script>
+                """
+                components.html(save_scroll_pos_js, height=0)
+                
                 insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
                 # トーストフラグを設定（ページ最上部で表示）
                 st.session_state["toast_expense"] = True
                 # step制：経費追加成功
                 st.session_state["step"] = "expense_done"
+                st.session_state["restore_scroll_pos"] = True  # スクロール位置復元フラグ
                 st.rerun()
     
     # =========================================================
