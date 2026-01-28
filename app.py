@@ -1791,7 +1791,7 @@ def render_ai_section(user_id: int, goal: float, fixed: float, user_key: str):
 # =========================================================
 def scroll_to_section(anchor_id: str, delay_ms: int = 300):
     """
-    指定したアンカーIDのセクションへ確実にスクロール（スマホ対応）
+    指定したアンカーIDのセクションへ確実にスクロール（スマホ対応・components.html使用）
     
     Args:
         anchor_id: スクロール先のアンカーID（例：「expense-section」）
@@ -1803,21 +1803,17 @@ def scroll_to_section(anchor_id: str, delay_ms: int = 300):
         function scrollToTarget() {{
             const element = document.getElementById('{anchor_id}');
             if (element) {{
-                // スマホ対応：ヘッダー分のオフセットを考慮
-                const headerOffset = 80;
-                const elementPosition = element.getBoundingClientRect().top;
-                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
-                
-                window.scrollTo({{
-                    top: Math.max(0, offsetPosition),
-                    behavior: 'smooth'
+                // scrollIntoViewを使用（スマホ対応・確実に動作）
+                element.scrollIntoView({{
+                    behavior: 'smooth',
+                    block: 'start'
                 }});
                 return true;
             }}
             return false;
         }}
         
-        // 初回試行
+        // 初回試行（Streamlitのレンダリング完了を待つ）
         setTimeout(function() {{
             if (!scrollToTarget()) {{
                 // 要素が見つからない場合は再試行
@@ -1858,10 +1854,8 @@ def render_success_with_next_action(
         scroll_flag_key: スクロールフラグのキー（例：「scroll_to_expense」）
         on_cta_click_callback: CTA押下時の追加処理（オプション）
     """
-    # トーストで即座にフィードバック（スクロール依存ゼロ・最優先）
-    st.toast(success_message, icon="✅")
-    
     # 画面上部に成功メッセージ＋CTAを表示（必ず見える位置）
+    # 注意：トーストはrender_mainの最上部で表示されるため、ここでは表示しない
     with st.container(border=True):
         st.success(success_message)
         st.markdown(f"**{next_action_label}**")
@@ -1890,6 +1884,25 @@ def render_success_with_next_action(
 # =========================================================
 def render_main(user_id: int, start: date, end: date, goal: float, fixed: float, user_key: str):
     st.markdown(f"## {APP_TITLE}")
+    
+    # =========================================================
+    # 成功メッセージのトースト表示（ページ最上部・スクロール不要で必ず見える）
+    # =========================================================
+    # 収益追加成功のトースト
+    if st.session_state.get("toast_revenue", False):
+        st.toast("✅ 収益を1件追加しました！", icon="✅")
+        st.session_state["toast_revenue"] = False
+    
+    # 経費追加成功のトースト
+    if st.session_state.get("toast_expense", False):
+        st.toast("✅ 経費を1件追加しました！", icon="✅")
+        st.session_state["toast_expense"] = False
+    
+    # スクロール処理（session_stateで制御）
+    scroll_target = st.session_state.get("scroll_target", None)
+    if scroll_target:
+        scroll_to_section(scroll_target, delay_ms=300)
+        st.session_state["scroll_target"] = None
     
     # オンボーディング（ゲストユーザー向け）
     is_guest = st.session_state.get("is_guest", False)
@@ -2039,6 +2052,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
             # 追加成功フラグを設定（全ユーザー対象）
             st.session_state["expense_added"] = True
+            # トーストフラグを設定（ページ最上部で表示）
+            st.session_state["toast_expense"] = True
             st.rerun()
     
     # 経費追加成功メッセージ＋次アクション（画面上部に表示・必ず見える位置）
