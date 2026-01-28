@@ -1843,7 +1843,8 @@ def perform_scroll_if_requested() -> None:
     ページ描画の最後に1回だけ呼び出し、
     必要であれば scrollIntoView を実行してから state を必ずクリアする。
     """
-    anchor_id = st.session_state.pop("scroll_to", None)
+    # auto_scroll_to を優先（scroll_to との互換性のため両方チェック）
+    anchor_id = st.session_state.pop("auto_scroll_to", None) or st.session_state.pop("scroll_to", None)
     if not anchor_id:
         return
 
@@ -2063,8 +2064,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
                 st.session_state["step"] = "income_done"  # step制：収益追加成功
                 st.session_state["e_amt_value"] = 0.0
-                request_scroll("expense-section")  # 経費セクション先頭へ自動スクロール
+                st.session_state["auto_scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
                 st.rerun()
+        
+        # 収益追加成功メッセージ（フォーム直下に表示）
+        if st.session_state.get("step") == "income_done":
+            st.success("✅ 収益を1件追加しました！")
         else:
             # ログイン後：全項目表示（既存のフォーム）
             # 日付（1カラム）
@@ -2106,23 +2111,15 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 st.session_state["step"] = "income_done"
                 # フォーム値をリセット（金額を0に）
                 st.session_state["e_amt_value"] = 0.0
-                request_scroll("expense-section")  # 経費セクション先頭へ自動スクロール
+                st.session_state["auto_scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
                 st.rerun()
+        
+        # 収益追加成功メッセージ（フォーム直下に表示）
+        if st.session_state.get("step") == "income_done":
+            st.success("✅ 収益を1件追加しました！")
     
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
-
-    # =========================================================
-    # 収益追加成功メッセージ（経費セクション直前・スクロール先付近に表示）
-    # =========================================================
-    if st.session_state.get("step") == "income_done":
-        with st.container(border=True):
-            st.success("✅ 収益を1件追加しました！")
-            st.markdown("**次：経費を1件追加（約1分）**")
-            if st.button("✍️ 経費入力セクションへ移動", type="primary", use_container_width=True, key="goto_expense_btn"):
-                st.session_state["step"] = "expense"  # step制：経費入力へ
-                request_scroll("expense-section")  # スクロールターゲット設定
-                st.rerun()
 
     # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用・確実なID）
     st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
@@ -2167,8 +2164,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             if st.button("経費を追加", key="add_expense", use_container_width=True):
                 insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
                 st.session_state["step"] = "expense_done"  # step制：経費追加成功
-                # 経費一覧（編集/削除）セクション先頭へ自動スクロール
-                request_scroll("expenses-list-section")
+                st.session_state["auto_scroll_to"] = "expenses-list-section"  # 経費一覧セクション先頭へ自動スクロール
                 st.rerun()
         else:
             # ログイン後：全項目表示（既存のフォーム）
@@ -2203,24 +2199,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
                 # step制：経費追加成功
                 st.session_state["step"] = "expense_done"
-                # 経費一覧（編集/削除）セクション先頭へ自動スクロール
-                request_scroll("expenses-list-section")
+                st.session_state["auto_scroll_to"] = "expenses-list-section"  # 経費一覧セクション先頭へ自動スクロール
                 st.rerun()
     
-    # =========================================================
-    # 経費追加成功メッセージ用アンカー（常設）＋カード表示
-    # =========================================================
-    # アンカーIDを常にDOMに配置しておくことで、rerun直後でも確実にスクロール先が存在するようにする
-    st.markdown('<div id="expense-success-section"></div>', unsafe_allow_html=True)
+    # 経費追加成功メッセージ（フォーム直下に表示）
     if st.session_state.get("step") == "expense_done":
-        with st.container(border=True):
-            st.success("✅ 経費を1件追加しました！")
-            st.markdown("**結果を見る準備ができました**")
-            if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
-                st.session_state["step"] = "result"  # step制：結果表示へ
-                st.session_state["show_results_section"] = True
-                request_scroll("results-section")  # 結果セクションへスクロール
-                st.rerun()
+        st.success("✅ 経費を1件追加しました！")
 
     # 経費一覧（編集/削除）用アンカー（常設）
     st.markdown('<div id="expenses-list-section"></div>', unsafe_allow_html=True)
@@ -2556,11 +2540,10 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
     # -------------------------
     # 今月の状況（矢印・色を自前HTMLで確実に）
-    # ゲストユーザーで結果セクションを既に表示している場合はスキップ
+    # 未ログイン時は表示しない（UX簡素化）
     # -------------------------
-    current_step_for_results = st.session_state.get("step", "income")
-    show_results_section = st.session_state.get("show_results_section", False)
-    if not (is_guest and (current_step_for_results == "result" or show_results_section)):
+    is_guest = st.session_state.get("is_guest", False)
+    if not is_guest:
         st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
 
         today = today_date()
@@ -2610,29 +2593,32 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
     # -------------------------
     # サマリー（選択した期間）
+    # 未ログイン時は表示しない（UX簡素化）
     # -------------------------
-    st.subheader("📌 サマリー（選択した期間）")
-    st.caption("※左サイドバーで選んだ期間（今月/先月/直近30日/カスタム）の集計です。")
+    is_guest = st.session_state.get("is_guest", False)
+    if not is_guest:
+        st.subheader("📌 サマリー（選択した期間）")
+        st.caption("※左サイドバーで選んだ期間（今月/先月/直近30日/カスタム）の集計です。")
 
-    earn_df = load_earnings(user_id, start, end)
-    exp_df = load_expenses(user_id, start, end)
+        earn_df = load_earnings(user_id, start, end)
+        exp_df = load_expenses(user_id, start, end)
 
-    period_income = float(earn_df["円換算"].sum()) if not earn_df.empty else 0.0
-    period_expense = float(exp_df["円換算"].sum()) if not exp_df.empty else 0.0
-    period_profit = period_income - period_expense
+        period_income = float(earn_df["円換算"].sum()) if not earn_df.empty else 0.0
+        period_expense = float(exp_df["円換算"].sum()) if not exp_df.empty else 0.0
+        period_profit = period_income - period_expense
 
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric("期間内 収益（円）", yen(period_income))
-    s2.metric("期間内 経費（円）", yen(period_expense))
-    s3.metric("期間内 利益（円）", yen(period_profit))
-    s4.metric("固定費（設定・円）", yen(fixed))
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("期間内 収益（円）", yen(period_income))
+        s2.metric("期間内 経費（円）", yen(period_expense))
+        s3.metric("期間内 利益（円）", yen(period_profit))
+        s4.metric("固定費（設定・円）", yen(fixed))
 
-    st.markdown("---")
+        st.markdown("---")
 
-    # 資産
-    render_assets_section(user_id)
+        # 資産
+        render_assets_section(user_id)
 
-    st.markdown("---")
+        st.markdown("---")
 
     # AI（分析＋自由質問）
     render_ai_section(user_id, goal, fixed, user_key)
