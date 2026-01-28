@@ -1886,6 +1886,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     st.markdown(f"## {APP_TITLE}")
     
     # =========================================================
+    # step制の初期化（状態管理）
+    # =========================================================
+    if "step" not in st.session_state:
+        st.session_state["step"] = "income"
+    
+    # =========================================================
     # 成功メッセージのトースト表示（ページ最上部・スクロール不要で必ず見える）
     # =========================================================
     # 収益追加成功のトースト
@@ -1898,7 +1904,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
         st.toast("✅ 経費を1件追加しました！", icon="✅")
         st.session_state["toast_expense"] = False
     
-    # スクロール処理（session_stateで制御）
+    # =========================================================
+    # スクロール処理（rerun後に実行される構造）
+    # =========================================================
     scroll_target = st.session_state.get("scroll_target", None)
     if scroll_target:
         scroll_to_section(scroll_target, delay_ms=300)
@@ -1979,10 +1987,11 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             col1, col2 = st.columns(2)
             with col1:
                 # フォーム値リセット対応：追加成功後は金額を0にリセット
-                default_amt = 0.0 if st.session_state.get("income_added", False) else st.session_state.get("e_amt_value", 0.0)
+                current_step = st.session_state.get("step", "income")
+                default_amt = 0.0 if current_step == "income_done" else st.session_state.get("e_amt_value", 0.0)
                 e_amt = st.number_input("金額（必須）", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
                 # 現在の値を保存（リセット用）
-                if not st.session_state.get("income_added", False):
+                if current_step != "income_done":
                     st.session_state["e_amt_value"] = e_amt
             with col2:
                 e_cat = pick_with_other("カテゴリ（必須）", DEFAULT_EARN_CATEGORIES, key="e_cat")
@@ -2009,7 +2018,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             if st.button("収益を追加", key="add_earning", use_container_width=True):
                 insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
                 st.session_state["toast_revenue"] = True
-                st.session_state["income_added"] = True
+                st.session_state["step"] = "income_done"  # step制：収益追加成功
                 st.session_state["e_amt_value"] = 0.0
                 st.rerun()
         else:
@@ -2028,10 +2037,11 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             col3, col4 = st.columns(2)
             with col3:
                 # フォーム値リセット対応：追加成功後は金額を0にリセット
-                default_amt = 0.0 if st.session_state.get("income_added", False) else st.session_state.get("e_amt_value", 0.0)
+                current_step = st.session_state.get("step", "income")
+                default_amt = 0.0 if current_step == "income_done" else st.session_state.get("e_amt_value", 0.0)
                 e_amt = st.number_input("金額", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
                 # 現在の値を保存（リセット用）
-                if not st.session_state.get("income_added", False):
+                if current_step != "income_done":
                     st.session_state["e_amt_value"] = e_amt
             with col4:
                 e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur", format_func=currency_ja)
@@ -2050,19 +2060,22 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
                 # トーストフラグを設定（ページ最上部で表示・追加直後に必ず見える）
                 st.session_state["toast_revenue"] = True
-                # 追加成功フラグを設定（次アクション表示用）
-                st.session_state["income_added"] = True
+                # step制：収益追加成功
+                st.session_state["step"] = "income_done"
                 # フォーム値をリセット（金額を0に）
                 st.session_state["e_amt_value"] = 0.0
                 st.rerun()
     
-    # 収益追加成功後の次アクションCTA（フォーム直下に表示）
-    if st.session_state.get("income_added", False):
+    # =========================================================
+    # 収益追加成功メッセージ（フォーム直下に固定表示・スクロール不要）
+    # =========================================================
+    if st.session_state.get("step") == "income_done":
         with st.container(border=True):
+            st.success("✅ 収益を1件追加しました！")
             st.markdown("**次：経費を1件追加（約1分）**")
             if st.button("✍️ 経費入力セクションへ移動", type="primary", use_container_width=True, key="goto_expense_btn"):
-                st.session_state["scroll_target"] = "expense-section"
-                st.session_state["income_added"] = False
+                st.session_state["step"] = "expense"  # step制：経費入力へ
+                st.session_state["scroll_target"] = "expense-section"  # スクロールターゲット設定
                 st.rerun()
 
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
@@ -2111,7 +2124,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             if st.button("経費を追加", key="add_expense", use_container_width=True):
                 insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
                 st.session_state["toast_expense"] = True
-                st.session_state["expense_added"] = True
+                st.session_state["step"] = "expense_done"  # step制：経費追加成功
                 st.rerun()
         else:
             # ログイン後：全項目表示（既存のフォーム）
@@ -2146,28 +2159,34 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
                 # トーストフラグを設定（ページ最上部で表示）
                 st.session_state["toast_expense"] = True
-                # 追加成功フラグを設定（次アクション表示用）
-                st.session_state["expense_added"] = True
+                # step制：経費追加成功
+                st.session_state["step"] = "expense_done"
                 st.rerun()
     
-    # 経費追加成功後の次アクションCTA（フォーム直下に表示）
-    if st.session_state.get("expense_added", False):
+    # =========================================================
+    # 経費追加成功メッセージ（フォーム直下に固定表示・スクロール不要）
+    # =========================================================
+    if st.session_state.get("step") == "expense_done":
         with st.container(border=True):
+            st.success("✅ 経費を1件追加しました！")
             st.markdown("**結果を見る準備ができました**")
             if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
-                st.session_state["scroll_target"] = "results-section"
+                st.session_state["step"] = "result"  # step制：結果表示へ
+                st.session_state["scroll_target"] = "results-section"  # スクロールターゲット設定
                 st.session_state["show_results_section"] = True
-                st.session_state["expense_added"] = False
                 st.rerun()
 
     with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
         render_recent_expenses_edit_delete(user_id, start, end, limit=3)
 
-    # ゲストユーザーで結果表示フラグが立っている場合、結果セクションをここに表示
+    # =========================================================
+    # 結果セクション表示（step制で制御）
+    # =========================================================
     is_guest = st.session_state.get("is_guest", False)
-    show_results = st.session_state.get("show_results_section", False)
+    current_step = st.session_state.get("step", "income")
     
-    if is_guest and show_results:
+    # stepが"result"の場合、または既存のshow_results_sectionフラグが立っている場合に結果を表示
+    if is_guest and (current_step == "result" or st.session_state.get("show_results_section", False)):
         st.markdown("---")
         st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
         
@@ -2493,7 +2512,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     # 今月の状況（矢印・色を自前HTMLで確実に）
     # ゲストユーザーで結果セクションを既に表示している場合はスキップ
     # -------------------------
-    if not (is_guest and show_results):
+    current_step_for_results = st.session_state.get("step", "income")
+    show_results_section = st.session_state.get("show_results_section", False)
+    if not (is_guest and (current_step_for_results == "result" or show_results_section)):
         # 結果セクションのアンカーを配置（スクロールターゲット用・確実なID）
         st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
         st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
