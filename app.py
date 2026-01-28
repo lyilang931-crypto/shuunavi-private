@@ -2167,7 +2167,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             if st.button("経費を追加", key="add_expense", use_container_width=True):
                 insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
                 st.session_state["step"] = "expense_done"  # step制：経費追加成功
-                request_scroll("expense-success-section")  # 「結果を見る」ボタン位置へ自動スクロール
+                # 経費一覧（編集/削除）セクション先頭へ自動スクロール
+                request_scroll("expenses-list-section")
                 st.rerun()
         else:
             # ログイン後：全項目表示（既存のフォーム）
@@ -2202,7 +2203,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
                 # step制：経費追加成功
                 st.session_state["step"] = "expense_done"
-                request_scroll("expense-success-section")  # 「結果を見る」ボタン位置へ自動スクロール
+                # 経費一覧（編集/削除）セクション先頭へ自動スクロール
+                request_scroll("expenses-list-section")
                 st.rerun()
     
     # =========================================================
@@ -2220,6 +2222,8 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 request_scroll("results-section")  # 結果セクションへスクロール
                 st.rerun()
 
+    # 経費一覧（編集/削除）用アンカー（常設）
+    st.markdown('<div id="expenses-list-section"></div>', unsafe_allow_html=True)
     with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
         render_recent_expenses_edit_delete(user_id, start, end, limit=3)
 
