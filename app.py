@@ -1802,30 +1802,47 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
         m_exp = load_expenses(user_id, m_start, m_end)
         
         with st.container(border=True):
-            st.markdown("### 🎯 3分で終わる（試用ガイド）")
+            # ガイド文言（目的を1点に絞る）
+            st.markdown("### 🎯 まずは収益を1件だけ入力してください（約1分）")
+            st.markdown(
+                """
+                <div style='margin-top: 8px; margin-bottom: 16px; font-size: 14px; color: var(--rn-subtext);'>
+                このあと分かること：<br>
+                ・今月の収支バランス<br>
+                ・一番ムダな支出<br>
+                ・改善アクション（AI）
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
             
             step1_done = not m_earn.empty
             step2_done = not m_exp.empty
             step3_done = step1_done and step2_done
             
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                status1 = "✅" if step1_done else "①"
-                st.markdown(f"**{status1} 収益を1件追加**")
-                if step1_done:
-                    st.caption("完了！")
-            with col2:
-                status2 = "✅" if step2_done else "②"
-                st.markdown(f"**{status2} 経費を1件追加**")
-                if step2_done:
-                    st.caption("完了！")
-            with col3:
-                status3 = "✅" if step3_done else "③"
-                st.markdown(f"**{status3} 結果を見る**")
-                if step3_done:
-                    st.caption("完了！")
+            # 進捗アンロック方式：完了したステップと次のステップのみ表示
+            if not step1_done:
+                # 初期：①のみ表示
+                st.markdown(f"**① 収益を1件追加**")
+            elif step1_done and not step2_done:
+                # ①完了後：①✅と②を表示
+                st.markdown(f"**✅ 収益を1件追加**（完了！）")
+                st.markdown("---")
+                st.markdown(f"**② 経費を1件追加**")
+            elif step1_done and step2_done and not step3_done:
+                # ①②完了後：①②✅と③を表示
+                st.markdown(f"**✅ 収益を1件追加**（完了！）")
+                st.markdown(f"**✅ 経費を1件追加**（完了！）")
+                st.markdown("---")
+                st.markdown(f"**③ 結果を見る**")
+            else:
+                # すべて完了
+                st.markdown(f"**✅ 収益を1件追加**（完了！）")
+                st.markdown(f"**✅ 経費を1件追加**（完了！）")
+                st.markdown(f"**✅ 結果を見る**（完了！）")
             
             if step3_done:
+                st.markdown("---")
                 st.success("🎉 試用完了！データを保存するには、サイドバーからログイン（ユーザー名/PIN）を設定してください。")
                 if st.button("オンボーディングを閉じる", key="close_onboarding"):
                     st.session_state["onboarding_step"] = 0
