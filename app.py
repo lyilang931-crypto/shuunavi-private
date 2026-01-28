@@ -1843,7 +1843,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             
             if step3_done:
                 st.markdown("---")
-                st.success("🎉 試用完了！データを保存するには、サイドバーからログイン（ユーザー名/PIN）を設定してください。")
+                st.success("🎉 試用完了！データを保存するには、サイドバー(>>)からログイン（ユーザー名/PIN）を設定してください。")
                 if st.button("オンボーディングを閉じる", key="close_onboarding"):
                     st.session_state["onboarding_step"] = 0
                     st.rerun()
@@ -2431,3 +2431,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
