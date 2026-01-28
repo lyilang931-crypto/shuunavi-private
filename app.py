@@ -1858,7 +1858,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
         with c3:
             e_cat = pick_with_other("カテゴリ", DEFAULT_EARN_CATEGORIES, key="e_cat")
         with c4:
-            e_amt = st.number_input("金額", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="e_amt")
+            # フォーム値リセット対応：追加成功後は金額を0にリセット
+            default_amt = 0.0 if st.session_state.get("income_added_flag", False) else st.session_state.get("e_amt_value", 0.0)
+            e_amt = st.number_input("金額", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
+            # 現在の値を保存（リセット用）
+            if not st.session_state.get("income_added_flag", False):
+                st.session_state["e_amt_value"] = e_amt
         with c5:
             e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur", format_func=currency_ja)
         with c6:
@@ -1872,68 +1877,47 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
         if st.button("収益を追加", key="add_earning"):
             insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-            # ゲストユーザーの場合、追加直後フラグとスクロールフラグを設定
-            if st.session_state.get("is_guest", False):
-                st.session_state["just_added_earning"] = True
-                st.session_state["scroll_to_earning"] = True
+            # 追加成功フラグを設定（全ユーザー対象）
+            st.session_state["income_added_flag"] = True
+            # フォーム値をリセット（金額を0に）
+            st.session_state["e_amt_value"] = 0.0
             st.rerun()
         
-        # 収益追加直後の成功メッセージ＋次アクション（ゲストユーザー時のみ）
-        if st.session_state.get("is_guest", False) and st.session_state.get("just_added_earning", False):
-            st.markdown("---")
-            # 下側の成功メッセージに一意なIDを付与（上部の成功メッセージと区別）
-            st.markdown('<div id="income_success_anchor_bottom"></div>', unsafe_allow_html=True)
+        # 収益追加直後の成功メッセージ＋次アクション（フォーム直下に表示）
+        if st.session_state.get("income_added_flag", False):
+            # トーストで即座にフィードバック（視認性向上）
+            st.toast("✅ 収益を1件追加しました！", icon="✅")
+            
+            # 成功メッセージカード（フォーム直下、ボタンのすぐ下）
             with st.container(border=True):
                 st.success("✅ 収益を1件追加しました！")
                 st.markdown("**次：経費を1件追加（約1分）**")
-                # 経費セクションへの誘導（下にスクロール）
-                st.markdown("👇 下の「➖ 経費を追加」セクションへ")
-            
-            # 自動スクロール（スクロールフラグが立っている場合のみ）
-            if st.session_state.get("scroll_to_earning", False):
-                st.markdown(
-                    """
-                    <script>
-                    (function() {
-                        // 複数回試行して確実にスクロール（Streamlitのレンダリングタイミングに対応）
-                        function scrollToNextAction() {
-                            // 優先順位1: 経費入力フォームの見出し直前
-                            let targetElement = document.getElementById('expense_section_anchor');
-                            
-                            // 優先順位2: 下側の成功メッセージ
-                            if (!targetElement) {
-                                targetElement = document.getElementById('income_success_anchor_bottom');
-                            }
-                            
-                            if (targetElement) {
-                                // scrollIntoViewを使用（スマホ対応）
-                                targetElement.scrollIntoView({
-                                    behavior: 'smooth',
-                                    block: 'start'
-                                });
-                                return true; // スクロール成功
-                            }
-                            return false; // 要素が見つからない
-                        }
-                        
-                        // 初回試行（300ms後）
-                        setTimeout(function() {
-                            if (!scrollToNextAction()) {
-                                // 要素が見つからない場合は再試行（600ms後）
-                                setTimeout(function() {
-                                    scrollToNextAction();
-                                }, 300);
-                            }
-                        }, 300);
-                    })();
-                    </script>
-                    """,
-                    unsafe_allow_html=True
-                )
-                st.session_state["scroll_to_earning"] = False
+                
+                # 経費セクションへ移動するボタン
+                if st.button("📝 経費入力セクションへ移動", type="primary", use_container_width=True, key="goto_expense_btn"):
+                    st.markdown(
+                        """
+                        <script>
+                        (function() {
+                            setTimeout(function() {
+                                const element = document.getElementById('expense_section_anchor');
+                                if (element) {
+                                    element.scrollIntoView({
+                                        behavior: 'smooth',
+                                        block: 'start'
+                                    });
+                                }
+                            }, 100);
+                        })();
+                        </script>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    st.session_state["income_added_flag"] = False
+                    st.rerun()
             
             # フラグをクリア（次回表示時は表示しない）
-            st.session_state["just_added_earning"] = False
+            st.session_state["income_added_flag"] = False
 
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
