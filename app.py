@@ -1850,38 +1850,43 @@ def perform_scroll_if_requested() -> None:
     scroll_js = f"""
     <script>
     (function() {{
-        let retryCount = 0;
-        const maxRetries = 20; // 最大1秒（50ms × 20回）
-        const targetId = '{anchor_id}';
+        var targetId = '{anchor_id}';
+        var retries = 0;
+        var maxRetries = 40; // 最大約2秒（50ms × 40回）
 
-        function attemptScroll() {{
-            let done = false;
+        // iOS Safari の自動スクロール復元を抑止（可能なら）
+        try {{
+            if ('scrollRestoration' in history) {{
+                history.scrollRestoration = 'manual';
+            }}
+        }} catch (e) {{}}
+
+        function doScroll() {{
             requestAnimationFrame(function() {{
                 requestAnimationFrame(function() {{
-                    const element = document.getElementById(targetId);
-                    if (element) {{
-                        element.scrollIntoView({{
-                            behavior: 'smooth',
-                            block: 'start'
-                        }});
-                        done = true;
+                    var el = document.getElementById(targetId);
+                    if (el) {{
+                        try {{
+                            el.scrollIntoView({{ behavior: 'auto', block: 'start' }});
+                        }} catch (e) {{
+                            // scrollIntoView が不安定な環境向けフォールバック
+                            try {{
+                                var rect = el.getBoundingClientRect();
+                                var currentY = window.pageYOffset || document.documentElement.scrollTop || 0;
+                                var y = currentY + rect.top - 8;
+                                window.scrollTo(0, y);
+                            }} catch (e2) {{}}
+                        }}
+                    }} else if (retries < maxRetries) {{
+                        retries += 1;
+                        setTimeout(doScroll, 50);
                     }}
                 }});
             }});
-            return done;
         }}
 
-        // 初回実行（100ms後）
-        setTimeout(function() {{
-            if (!attemptScroll()) {{
-                const retryInterval = setInterval(function() {{
-                    retryCount++;
-                    if (attemptScroll() || retryCount >= maxRetries) {{
-                        clearInterval(retryInterval);
-                    }}
-                }}, 50);
-            }}
-        }}, 100);
+        // 初回は短い遅延を置いてから開始
+        setTimeout(doScroll, 50);
     }})();
     </script>
     """
