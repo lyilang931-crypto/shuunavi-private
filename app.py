@@ -1112,100 +1112,55 @@ def period_selector() -> Tuple[date, date, str]:
 # =========================================================
 # UI: ログイン
 # =========================================================
-def render_login(in_sidebar: bool = True):
-    """
-    ログインUIを表示（サイドバーまたはexpander内で使用可能）
-    """
-    container = st.sidebar if in_sidebar else st
-    
-    container.markdown("### 🔐 ログイン（簡易）")
-    username = container.text_input("ユーザー名", value="", placeholder="例：suzuki", key="login_username")
-    pin = container.text_input("PIN（4〜8桁推奨）", value="", type="password", key="login_pin")
+def render_login():
+    st.sidebar.markdown("### 🔐 ログイン（簡易）")
+    username = st.sidebar.text_input("ユーザー名", value="", placeholder="例：suzuki")
+    pin = st.sidebar.text_input("PIN（4〜8桁推奨）", value="", type="password")
 
-    col1, col2 = container.columns(2)
+    col1, col2 = st.sidebar.columns(2)
     with col1:
-        if container.button("ログイン", use_container_width=True, key="login_btn"):
+        if st.sidebar.button("ログイン", use_container_width=True):
             if not username.strip() or not pin.strip():
-                container.error("ユーザー名とPINを入力してください。")
+                st.sidebar.error("ユーザー名とPINを入力してください。")
                 return
             user = get_user_by_username(username)
             if not user:
-                container.error("ユーザーが存在しません（新規登録してください）。")
+                st.sidebar.error("ユーザーが存在しません（新規登録してください）。")
                 return
             if user["pin_hash"] != pin_hash(username.strip(), pin.strip()):
-                container.error("PINが違います。")
+                st.sidebar.error("PINが違います。")
                 return
             st.session_state["user_id"] = int(user["id"])
             st.session_state["username"] = user["username"]
-            st.session_state.pop("is_guest", None)  # ゲストフラグをクリア
             st.rerun()
 
     with col2:
-        if container.button("新規登録", use_container_width=True, key="register_btn"):
+        if st.sidebar.button("新規登録", use_container_width=True):
             if not username.strip() or not pin.strip():
-                container.error("ユーザー名とPINを入力してください。")
+                st.sidebar.error("ユーザー名とPINを入力してください。")
                 return
             user = get_user_by_username(username)
             if user:
-                container.error("そのユーザー名は既に使われています。")
+                st.sidebar.error("そのユーザー名は既に使われています。")
                 return
             try:
                 uid = create_user(username, pin)
             except IntegrityError as e:
-                container.error(f"登録に失敗しました（DB互換の可能性）：{e}")
+                st.sidebar.error(f"登録に失敗しました（DB互換の可能性）：{e}")
                 return
             st.session_state["user_id"] = int(uid)
             st.session_state["username"] = username.strip()
-            st.session_state.pop("is_guest", None)  # ゲストフラグをクリア
             st.rerun()
 
 
 def render_sidebar_after_login(user_id: int):
-    is_guest = st.session_state.get("is_guest", False)
-    username = st.session_state.get('username', '')
-    
-    if is_guest:
-        st.sidebar.markdown("### 👤 試用中（ゲスト）")
-        st.sidebar.info(f"ユーザー：{username}")
-        st.sidebar.warning("💡 データを保存するには、ユーザー名とPINを設定してログインしてください。")
-        
-        with st.sidebar.expander("🔐 ログイン設定（データ保存用）", expanded=False):
-            new_username = st.text_input("ユーザー名", value="", placeholder="例：suzuki", key="guest_set_username")
-            new_pin = st.text_input("PIN（4〜8桁推奨）", value="", type="password", key="guest_set_pin")
-            
-            if st.button("設定してログイン", use_container_width=True, key="guest_register_btn"):
-                if not new_username.strip() or not new_pin.strip():
-                    st.error("ユーザー名とPINを入力してください。")
-                else:
-                    # 既存ユーザー名チェック
-                    existing = get_user_by_username(new_username)
-                    if existing:
-                        st.error("そのユーザー名は既に使われています。")
-                    else:
-                        # ゲストユーザーを正式ユーザーに変更（ユーザー名とPINを更新）
-                        try:
-                            # 現在のゲストユーザーを削除して新規作成
-                            # （簡易実装：実際はUPDATEが理想だが、ここでは新規作成）
-                            uid = create_user(new_username.strip(), new_pin.strip())
-                            # データ移行（簡易版：ここでは新規ユーザーとして開始）
-                            st.session_state["user_id"] = int(uid)
-                            st.session_state["username"] = new_username.strip()
-                            st.session_state.pop("is_guest", None)
-                            st.success("ログイン設定が完了しました！")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"設定に失敗しました：{e}")
-    else:
-        st.sidebar.markdown("### 🔓 ログイン中")
-        st.sidebar.success(f"ユーザー：{username}")
-    
+    st.sidebar.markdown("### 🔓 ログイン中")
+    st.sidebar.success(f"ユーザー：{st.session_state.get('username','')}")
     if st.sidebar.button("ログアウト", use_container_width=True):
         st.session_state.pop("user_id", None)
         st.session_state.pop("username", None)
         st.session_state.pop("user_api_key", None)
         st.session_state.pop("chat_history", None)
-        st.session_state.pop("is_guest", None)
-        st.session_state.pop("onboarding_step", None)
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -1665,6 +1620,74 @@ def run_ai_with_limits(user_id: int, user_supplied_key: str, messages: List[dict
 
 
 # =========================================================
+# UI: スクロール制御（統一されたスクロール処理）
+# =========================================================
+def request_scroll(anchor_id: str):
+    """
+    スクロールリクエストを設定する（rerun()前に呼ぶ）
+    
+    Args:
+        anchor_id: スクロール先のアンカーID（例：「expense-section」）
+    """
+    st.session_state["scroll_to"] = anchor_id
+
+
+def perform_scroll_if_requested():
+    """
+    ページ末尾で呼び出す。scroll_toが設定されていればスクロールを実行し、実行後は必ずクリアする。
+    iOS Safariでも安定するよう requestAnimationFrame を二重にして scrollIntoView を使用。
+    """
+    anchor_id = st.session_state.pop("scroll_to", None)
+    if anchor_id:
+        scroll_js = f"""
+        <script>
+        (function() {{
+            let retryCount = 0;
+            const maxRetries = 20; // 最大1秒（50ms × 20回）
+            const targetId = '{anchor_id}';
+            
+            function attemptScroll() {{
+                return new Promise(function(resolve) {{
+                    requestAnimationFrame(function() {{
+                        requestAnimationFrame(function() {{
+                            const element = document.getElementById(targetId);
+                            if (element) {{
+                                element.scrollIntoView({{
+                                    behavior: 'smooth',
+                                    block: 'start'
+                                }});
+                                resolve(true);
+                            }} else {{
+                                resolve(false);
+                            }}
+                        }});
+                    }});
+                }});
+            }}
+            
+            // 初回実行（100ms後）
+            setTimeout(function() {{
+                attemptScroll().then(function(success) {{
+                    if (!success) {{
+                        // 要素が見つからない場合はリトライ
+                        const retryInterval = setInterval(function() {{
+                            retryCount++;
+                            attemptScroll().then(function(success) {{
+                                if (success || retryCount >= maxRetries) {{
+                                    clearInterval(retryInterval);
+                                }}
+                            }});
+                        }}, 50);
+                    }}
+                }});
+            }}, 100);
+        }})();
+        </script>
+        """
+        components.html(scroll_js, height=0)
+
+
+# =========================================================
 # UI: AI（分析＋自由質問チャット）
 # =========================================================
 def render_ai_section(user_id: int, goal: float, fixed: float, user_key: str):
@@ -1787,458 +1810,104 @@ def render_ai_section(user_id: int, goal: float, fixed: float, user_key: str):
 
 
 # =========================================================
-# UI: スクロール用ユーティリティ（確実に動作するように）
-# =========================================================
-def scroll_to_section(anchor_id: str, delay_ms: int = 300):
-    """
-    指定したアンカーIDのセクションへ確実にスクロール（スマホ対応・components.html使用）
-    
-    Args:
-        anchor_id: スクロール先のアンカーID（例：「expense-section」）
-        delay_ms: スクロール実行までの遅延（ミリ秒、Streamlitのレンダリング完了を待つ）
-    """
-    scroll_js = f"""
-    <script>
-    (function() {{
-        function scrollToTarget() {{
-            const element = document.getElementById('{anchor_id}');
-            if (element) {{
-                // scrollIntoViewを使用（スマホ対応・確実に動作）
-                element.scrollIntoView({{
-                    behavior: 'smooth',
-                    block: 'start'
-                }});
-                return true;
-            }}
-            return false;
-        }}
-        
-        // 初回試行（Streamlitのレンダリング完了を待つ）
-        setTimeout(function() {{
-            if (!scrollToTarget()) {{
-                // 要素が見つからない場合は再試行
-                setTimeout(function() {{
-                    scrollToTarget();
-                }}, 200);
-            }}
-        }}, {delay_ms});
-    }})();
-    </script>
-    """
-    components.html(scroll_js, height=0)
-
-
-# =========================================================
-# UI: 成功メッセージ＋次アクションCTA（共通関数）
-# =========================================================
-def render_success_with_next_action(
-    success_message: str,
-    next_action_label: str,
-    cta_button_label: str,
-    cta_button_key: str,
-    target_anchor_id: str,
-    flag_key: str,
-    scroll_flag_key: str,
-    on_cta_click_callback: Optional[Callable] = None
-):
-    """
-    成功メッセージと次アクションCTAを画面上部に表示（スマホ最優先）
-    
-    Args:
-        success_message: 成功メッセージ（例：「✅ 収益を1件追加しました！」）
-        next_action_label: 次アクションの説明（例：「次：経費を1件追加（約1分）」）
-        cta_button_label: CTAボタンのラベル（例：「✍️ 経費入力セクションへ移動」）
-        cta_button_key: CTAボタンのキー（一意である必要がある）
-        target_anchor_id: スクロール先のアンカーID（例：「expense-section」）
-        flag_key: 成功フラグのキー（例：「income_added」）
-        scroll_flag_key: スクロールフラグのキー（例：「scroll_to_expense」）
-        on_cta_click_callback: CTA押下時の追加処理（オプション）
-    """
-    # 画面上部に成功メッセージ＋CTAを表示（必ず見える位置）
-    # 注意：トーストはrender_mainの最上部で表示されるため、ここでは表示しない
-    with st.container(border=True):
-        st.success(success_message)
-        st.markdown(f"**{next_action_label}**")
-        
-        # CTAボタン（ユーザーが押した時だけスクロール）
-        if st.button(cta_button_label, type="primary", use_container_width=True, key=cta_button_key):
-            # スクロールフラグを設定（次回レンダリングでスクロール実行）
-            st.session_state[scroll_flag_key] = True
-            
-            # 追加処理があれば実行
-            if on_cta_click_callback:
-                on_cta_click_callback()
-            
-            # フラグをクリア
-            st.session_state[flag_key] = False
-            st.rerun()
-    
-    # スクロールフラグが立っている場合はスクロール実行
-    if st.session_state.get(scroll_flag_key, False):
-        scroll_to_section(target_anchor_id, delay_ms=300)
-        st.session_state[scroll_flag_key] = False
-
-
-# =========================================================
 # UI: メイン（赤字/黒字の矢印・色を統一 / 英語排除）
 # =========================================================
 def render_main(user_id: int, start: date, end: date, goal: float, fixed: float, user_key: str):
     st.markdown(f"## {APP_TITLE}")
-    
-    # =========================================================
-    # step制の初期化（状態管理）
-    # =========================================================
-    if "step" not in st.session_state:
-        st.session_state["step"] = "income"
-    
-    
-    # オンボーディング（ゲストユーザー向け）
-    is_guest = st.session_state.get("is_guest", False)
-    onboarding_step = st.session_state.get("onboarding_step", 0)
-    
-    if is_guest and onboarding_step > 0:
-        today = today_date()
-        m_start, m_end = month_range(today)
-        m_earn = load_earnings(user_id, m_start, m_end)
-        m_exp = load_expenses(user_id, m_start, m_end)
-        
-        with st.container(border=True):
-            # ガイド文言（目的を1点に絞る）
-            st.markdown("### 🎯 まずは収益を1件だけ入力してください（約1分）")
-            st.markdown(
-                """
-                <div style='margin-top: 8px; margin-bottom: 16px; font-size: 14px; color: var(--rn-subtext);'>
-                このあと分かること：<br>
-                ・今月の収支バランス<br>
-                ・一番ムダな支出<br>
-                ・改善アクション（AI）
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            
-            step1_done = not m_earn.empty
-            step2_done = not m_exp.empty
-            step3_done = step1_done and step2_done
-            
-            # 進捗アンロック方式：完了したステップと次のステップのみ表示
-            if not step1_done:
-                # 初期：①のみ表示
-                st.markdown(f"**① 収益を1件追加**")
-            elif step1_done and not step2_done:
-                # ①完了後：①✅と②を表示
-                st.markdown(f"**✅ 収益を1件追加**（完了！）")
-                st.markdown("---")
-                st.markdown(f"**② 経費を1件追加**")
-            elif step1_done and step2_done and not step3_done:
-                # ①②完了後：①②✅と③を表示
-                st.markdown(f"**✅ 収益を1件追加**（完了！）")
-                st.markdown(f"**✅ 経費を1件追加**（完了！）")
-                st.markdown("---")
-                st.markdown(f"**③ 結果を見る**")
-            else:
-                # すべて完了
-                st.markdown(f"**✅ 収益を1件追加**（完了！）")
-                st.markdown(f"**✅ 経費を1件追加**（完了！）")
-                st.markdown(f"**✅ 結果を見る**（完了！）")
-            
-            if step3_done:
-                st.markdown("---")
-                st.success("🎉 試用完了！データを保存するには、サイドバー(>>)からログイン（ユーザー名/PIN）を設定してください。")
-                if st.button("オンボーディングを閉じる", key="close_onboarding"):
-                    st.session_state["onboarding_step"] = 0
-                    st.rerun()
 
-    # 収益セクションのアンカーを配置（スクロールターゲット用・確実なID）
-    st.markdown('<div id="income-section"></div>', unsafe_allow_html=True)
-    
     st.subheader("➕ 収益を追加")
     with st.container(border=True):
-        # ログイン前は最小フォーム、ログイン後は全項目表示
-        is_guest = st.session_state.get("is_guest", False)
-        
-        if is_guest:
-            # ログイン前：最小フォーム（金額・カテゴリのみ）
-            # 日付はデフォルトで今日（任意）
-            e_day = today_date()
-            e_platform = "未設定"
-            e_memo = ""
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                # フォーム値リセット対応：追加成功後は金額を0にリセット
-                current_step = st.session_state.get("step", "income")
-                default_amt = 0.0 if current_step == "income_done" else st.session_state.get("e_amt_value", 0.0)
-                e_amt = st.number_input("金額（必須）", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
-                # 現在の値を保存（リセット用）
-                if current_step != "income_done":
-                    st.session_state["e_amt_value"] = e_amt
-            with col2:
-                e_cat = pick_with_other("カテゴリ（必須）", DEFAULT_EARN_CATEGORIES, key="e_cat")
-            
-            # 詳細設定（折りたたみ）
-            with st.expander("📝 詳細設定（任意）", expanded=False):
-                e_day = st.date_input("日付", value=e_day, min_value=MIN_DAY, key="e_day")
-                e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform")
-                e_memo = st.text_input("メモ", value="", key="e_memo")
-                fx = get_fx_rates()
-                jpy_cur = "JPY"
-                st.caption(
-                    f"円換算（概算）：{yen(compute_jpy(e_amt, jpy_cur, fx))}（1円=1円）"
-                )
-            
-            # デフォルト値設定（ログイン前）
-            e_cur = "JPY"  # 円固定
-            if not e_platform or e_platform.strip() == "":
-                e_platform = "未設定"
-            if not e_memo:
-                e_memo = ""
-            
-            # 送信ボタン
-            if st.button("収益を追加", key="add_earning", use_container_width=True):
-                insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-                st.session_state["step"] = "income_done"  # step制：収益追加成功
-                st.session_state["e_amt_value"] = 0.0
-                st.session_state["auto_scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
-                st.rerun()
-        else:
-            # ログイン後：全項目表示（既存のフォーム）
-            # 日付（1カラム）
+        c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
+        with c1:
             e_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="e_day")
-            
-            # プラットフォーム×カテゴリ（2カラム）
-            col1, col2 = st.columns(2)
-            with col1:
-                e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform")
-            with col2:
-                e_cat = pick_with_other("カテゴリ", DEFAULT_EARN_CATEGORIES, key="e_cat")
-            
-            # 金額×通貨（2カラム）
-            col3, col4 = st.columns(2)
-            with col3:
-                # フォーム値リセット対応：追加成功後は金額を0にリセット
-                current_step = st.session_state.get("step", "income")
-                default_amt = 0.0 if current_step == "income_done" else st.session_state.get("e_amt_value", 0.0)
-                e_amt = st.number_input("金額", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
-                # 現在の値を保存（リセット用）
-                if current_step != "income_done":
-                    st.session_state["e_amt_value"] = e_amt
-            with col4:
-                e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur", format_func=currency_ja)
-            
-            # メモ（1カラム）
+        with c2:
+            e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform")
+        with c3:
+            e_cat = pick_with_other("カテゴリ", DEFAULT_EARN_CATEGORIES, key="e_cat")
+        with c4:
+            e_amt = st.number_input("金額", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="e_amt")
+        with c5:
+            e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur", format_func=currency_ja)
+        with c6:
             e_memo = st.text_input("メモ（任意）", value="", key="e_memo")
-            
-            # 円換算（小さく表示）
-            fx = get_fx_rates()
-            st.caption(
-                f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
-            )
-            
-            # 送信ボタン（1カラム）
-            if st.button("収益を追加", key="add_earning", use_container_width=True):
-                insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-                # step制：収益追加成功
-                st.session_state["step"] = "income_done"
-                # フォーム値をリセット（金額を0に）
-                st.session_state["e_amt_value"] = 0.0
-                st.session_state["auto_scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
-                st.rerun()
-    
+
+        fx = get_fx_rates()
+        st.caption(
+            f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}"
+            f"（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
+        )
+
+        if st.button("収益を追加", key="add_earning"):
+            insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
+            st.session_state["income_added"] = True  # 成功メッセージ表示フラグ
+            request_scroll("expense-section")  # 経費セクションへ自動スクロール
+            st.rerun()
+
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
 
     # =========================================================
     # 収益追加成功メッセージ（経費セクション直前・スクロール先付近に表示）
     # =========================================================
-    if st.session_state.get("step") == "income_done":
+    if st.session_state.get("income_added", False):
+        # アンカーIDを配置（スクロールターゲット用）
+        st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
         with st.container(border=True):
             st.success("✅ 収益を1件追加しました！")
             st.markdown("**次：経費を1件追加（約1分）**")
             if st.button("✍️ 経費入力セクションへ移動", type="primary", use_container_width=True, key="goto_expense_btn"):
-                st.session_state["step"] = "expense"  # step制：経費入力へ
-                st.session_state["auto_scroll_to"] = "expense-section"  # スクロールターゲット設定（auto_scroll_toに統一）
+                request_scroll("expense-section")
+                st.session_state["income_added"] = False
                 st.rerun()
+    else:
+        # アンカーIDは常に配置（スクロールターゲット用）
+        st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
 
-    # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用・確実なID）
-    st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
-    
     st.subheader("➖ 経費を追加")
     with st.container(border=True):
-        # ログイン前は最小フォーム、ログイン後は全項目表示
-        is_guest = st.session_state.get("is_guest", False)
-        
-        if is_guest:
-            # ログイン前：最小フォーム（金額・カテゴリのみ）
-            # 日付はデフォルトで今日（任意）
-            x_day = today_date()
-            x_vendor = "未設定"
-            x_memo = ""
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                x_amt = st.number_input("金額（必須）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt")
-            with col2:
-                x_cat = pick_with_other("カテゴリ（必須）", DEFAULT_EXP_CATEGORIES, key="x_cat")
-            
-            # 詳細設定（折りたたみ）
-            with st.expander("📝 詳細設定（任意）", expanded=False):
-                x_day = st.date_input("日付", value=x_day, min_value=MIN_DAY, key="x_day")
-                x_vendor = st.text_input("支払先", value="", key="x_vendor")
-                x_memo = st.text_input("メモ", value="", key="x_memo")
-                fx = get_fx_rates()
-                jpy_cur = "JPY"
-                st.caption(
-                    f"円換算（概算）：{yen(compute_jpy(x_amt, jpy_cur, fx))}（1円=1円）"
-                )
-            
-            # デフォルト値設定（ログイン前）
-            x_cur = "JPY"  # 円固定
-            if not x_vendor or x_vendor.strip() == "":
-                x_vendor = "未設定"
-            if not x_memo:
-                x_memo = ""
-            
-            # 送信ボタン
-            if st.button("経費を追加", key="add_expense", use_container_width=True):
-                insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-                st.session_state["step"] = "expense_done"  # step制：経費追加成功
-                st.session_state["auto_scroll_to"] = "expense-success-section"  # 「結果を見る」ボタン位置へ自動スクロール
-                st.rerun()
-        else:
-            # ログイン後：全項目表示（既存のフォーム）
-            # 日付（1カラム）
+        c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
+        with c1:
             x_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="x_day")
-            
-            # 支払先×カテゴリ（2カラム）
-            col1, col2 = st.columns(2)
-            with col1:
-                x_vendor = st.text_input("支払先", value="ChatGPT", key="x_vendor")
-            with col2:
-                x_cat = pick_with_other("カテゴリ（経費）", DEFAULT_EXP_CATEGORIES, key="x_cat")
-            
-            # 金額×通貨（2カラム）
-            col3, col4 = st.columns(2)
-            with col3:
-                x_amt = st.number_input("金額（経費）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt")
-            with col4:
-                x_cur = st.selectbox("通貨（経費）", CURRENCY_OPTIONS, index=0, key="x_cur", format_func=currency_ja)
-            
-            # メモ（1カラム）
+        with c2:
+            x_vendor = st.text_input("支払先", value="ChatGPT", key="x_vendor")
+        with c3:
+            x_cat = pick_with_other("カテゴリ（経費）", DEFAULT_EXP_CATEGORIES, key="x_cat")
+        with c4:
+            x_amt = st.number_input("金額（経費）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt")
+        with c5:
+            x_cur = st.selectbox("通貨（経費）", CURRENCY_OPTIONS, index=0, key="x_cur", format_func=currency_ja)
+        with c6:
             x_memo = st.text_input("メモ（任意）", value="", key="x_memo")
-            
-            # 円換算（小さく表示）
-            fx = get_fx_rates()
-            st.caption(
-                f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
-            )
-            
-            # 送信ボタン（1カラム）
-            if st.button("経費を追加", key="add_expense", use_container_width=True):
-                insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-                # step制：経費追加成功
-                st.session_state["step"] = "expense_done"
-                st.session_state["auto_scroll_to"] = "expense-success-section"  # 「結果を見る」ボタン位置へ自動スクロール
-                st.rerun()
-    
+
+        fx = get_fx_rates()
+        st.caption(
+            f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}"
+            f"（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
+        )
+
+        if st.button("経費を追加", key="add_expense"):
+            insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
+            st.session_state["expense_added"] = True  # 成功メッセージ表示フラグ
+            request_scroll("expense-success-section")  # 「結果を見る」カードへ自動スクロール
+            st.rerun()
+
     # =========================================================
-    # 経費追加成功メッセージ（フォーム直下に固定表示・「結果を見る」ボタンが見える位置）
+    # 経費追加成功メッセージ（「結果を見る」カード直前・スクロール先付近に表示）
     # =========================================================
-    if st.session_state.get("step") == "expense_done":
-        # アンカーIDを設定（自動スクロールのターゲット）
-        st.markdown('<div id="expense-success-section"></div>', unsafe_allow_html=True)
+    # アンカーIDは常に配置（スクロールターゲット用・1箇所のみ）
+    st.markdown('<div id="expense-success-section"></div>', unsafe_allow_html=True)
+    if st.session_state.get("expense_added", False):
         with st.container(border=True):
             st.success("✅ 経費を1件追加しました！")
             st.markdown("**結果を見る準備ができました**")
             if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
-                st.session_state["step"] = "result"  # step制：結果表示へ
-                st.session_state["auto_scroll_to"] = "results-section"  # スクロールターゲット設定（auto_scroll_toに統一）
                 st.session_state["show_results_section"] = True
+                request_scroll("results-section")  # 結果セクションへ自動スクロール
+                st.session_state["expense_added"] = False
                 st.rerun()
 
     with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
         render_recent_expenses_edit_delete(user_id, start, end, limit=3)
-
-    # =========================================================
-    # 結果セクション表示（step制で制御）
-    # =========================================================
-    is_guest = st.session_state.get("is_guest", False)
-    current_step = st.session_state.get("step", "income")
-    
-    # stepが"result"の場合、または既存のshow_results_sectionフラグが立っている場合に結果を表示
-    if is_guest and (current_step == "result" or st.session_state.get("show_results_section", False)):
-        st.markdown("---")
-        st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
-        
-        # ミニ結果（最上部に大きく表示）
-        today = today_date()
-        m_start, m_end = month_range(today)
-        m_earn = load_earnings(user_id, m_start, m_end)
-        m_exp = load_expenses(user_id, m_start, m_end)
-        
-        income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
-        expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
-        profit = income - expense
-        
-        with st.container(border=True):
-            st.markdown("### 📊 結果（今月の収支）")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("収益", yen(income), delta=None)
-            with col2:
-                st.metric("経費", yen(expense), delta=None)
-            with col3:
-                profit_color = "#2e7d32" if profit >= 0 else "#c62828"
-                st.markdown(
-                    f"<div style='text-align: center;'><div style='font-size: 12px; color: var(--rn-subtext); margin-bottom: 4px;'>利益</div><div style='font-size: 28px; font-weight: 900; color: {profit_color};'>{yen(profit)}</div></div>",
-                    unsafe_allow_html=True
-                )
-            
-            if profit < 0:
-                st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
-            else:
-                st.success("✅ 今月は黒字です")
-        
-        st.markdown("---")
-        
-        # 結果セクションのアンカーを配置（スクロールターゲット用・確実なID）
-        st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
-        
-        # 詳細結果（今月の状況）
-        st.subheader("📊 今月の状況（詳細）")
-        st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
-        
-        # 前月
-        prev_last_day = m_start - timedelta(days=1)
-        prev_start, prev_end = month_range(prev_last_day)
-        p_earn = load_earnings(user_id, prev_start, prev_end)
-        p_exp = load_expenses(user_id, prev_start, prev_end)
-        prev_profit = (float(p_earn["円換算"].sum()) if not p_earn.empty else 0.0) - (float(p_exp["円換算"].sum()) if not p_exp.empty else 0.0)
-        delta_profit = profit - prev_profit
-        
-        remain_to_goal = max(0.0, float(goal) - float(profit))
-        achieve = 0.0
-        if float(goal) > 0:
-            achieve = max(0.0, (profit / float(goal)) * 100.0)
-        
-        r1c1, r1c2, r1c3 = st.columns(3)
-        r1c1.metric("収益", yen(income))
-        r1c2.metric("経費", yen(expense))
-        r1c3.metric("利益", yen(profit))
-        
-        r2c1, r2c2 = st.columns(2)
-        r2c1.metric("目標まで（利益）", yen(remain_to_goal))
-        r2c2.metric("達成率（利益）", f"{int(achieve)}%")
-        
-        st.markdown(
-            f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(delta_profit, prev_profit, big=True)}</div>",
-            unsafe_allow_html=True,
-        )
-        
-        st.markdown("---")
-        
-        # 試用完了メッセージ（控えめに）
-        st.info("💡 データを保存するには、サイドバーからログイン（ユーザー名/PIN）を設定してください。")
 
     with st.expander("🧾 収益一覧（編集・削除）", expanded=False):
         earn_df= load_earnings(user_id, start, end)
@@ -2490,58 +2159,55 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
     # -------------------------
     # 今月の状況（矢印・色を自前HTMLで確実に）
-    # ゲストユーザーで結果セクションを既に表示している場合はスキップ
     # -------------------------
-    current_step_for_results = st.session_state.get("step", "income")
-    show_results_section = st.session_state.get("show_results_section", False)
-    if not (is_guest and (current_step_for_results == "result" or show_results_section)):
-        # 結果セクションのアンカーを配置（スクロールターゲット用・確実なID）
-        st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
-        st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
+    # 結果セクションのアンカーIDを配置（スクロールターゲット用・1箇所のみ）
+    st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
+    st.subheader("📊 今月の状況（ひと目で確認）")
+    st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
 
-        today = today_date()
-        m_start, m_end = month_range(today)
-        m_earn = load_earnings(user_id, m_start, m_end)
-        m_exp = load_expenses(user_id, m_start, m_end)
+    today = today_date()
+    m_start, m_end = month_range(today)
+    m_earn = load_earnings(user_id, m_start, m_end)
+    m_exp = load_expenses(user_id, m_start, m_end)
 
-        income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
-        expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
-        profit = income - expense
+    income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
+    expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
+    profit = income - expense
 
-        # 前月
-        prev_last_day = m_start - timedelta(days=1)
-        prev_start, prev_end = month_range(prev_last_day)
-        p_earn = load_earnings(user_id, prev_start, prev_end)
-        p_exp = load_expenses(user_id, prev_start, prev_end)
-        prev_profit = (float(p_earn["円換算"].sum()) if not p_earn.empty else 0.0) - (float(p_exp["円換算"].sum()) if not p_exp.empty else 0.0)
+    # 前月
+    prev_last_day = m_start - timedelta(days=1)
+    prev_start, prev_end = month_range(prev_last_day)
+    p_earn = load_earnings(user_id, prev_start, prev_end)
+    p_exp = load_expenses(user_id, prev_start, prev_end)
+    prev_profit = (float(p_earn["円換算"].sum()) if not p_earn.empty else 0.0) - (float(p_exp["円換算"].sum()) if not p_exp.empty else 0.0)
 
-        delta_profit = profit - prev_profit
+    delta_profit = profit - prev_profit
 
-        remain_to_goal = max(0.0, float(goal) - float(profit))
-        achieve = 0.0
-        if float(goal) > 0:
-            achieve = max(0.0, (profit / float(goal)) * 100.0)
+    remain_to_goal = max(0.0, float(goal) - float(profit))
+    achieve = 0.0
+    if float(goal) > 0:
+        achieve = max(0.0, (profit / float(goal)) * 100.0)
 
-        r1c1, r1c2, r1c3 = st.columns(3)
-        r1c1.metric("収益", yen(income))
-        r1c2.metric("経費", yen(expense))
-        r1c3.metric("利益", yen(profit))
+    r1c1, r1c2, r1c3 = st.columns(3)
+    r1c1.metric("収益", yen(income))
+    r1c2.metric("経費", yen(expense))
+    r1c3.metric("利益", yen(profit))
 
-        r2c1, r2c2 = st.columns(2)
-        r2c1.metric("目標まで（利益）", yen(remain_to_goal))
-        r2c2.metric("達成率（利益）", f"{int(achieve)}%")
+    r2c1, r2c2 = st.columns(2)
+    r2c1.metric("目標まで（利益）", yen(remain_to_goal))
+    r2c2.metric("達成率（利益）", f"{int(achieve)}%")
 
-        st.markdown(
-            f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(delta_profit, prev_profit, big=True)}</div>",
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(delta_profit, prev_profit, big=True)}</div>",
+        unsafe_allow_html=True,
+    )
 
-        if profit < 0:
-            st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
-        else:
-            st.success("✅ 今月は黒字です")
+    if profit < 0:
+        st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
+    else:
+        st.success("✅ 今月は黒字です")
 
-        st.markdown("---")
+    st.markdown("---")
 
 
     # -------------------------
@@ -2576,50 +2242,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     st.success("狙い：入力→編集/削除→可視化→AI提案が1画面で回る")
     
     # =========================================================
-    # 自動スクロール処理（ページ末尾で実行・収益/経費追加成功時に次の導線が見える位置へ）
+    # スクロール処理（ページ末尾で1回だけ実行）
     # =========================================================
-    auto_scroll_to = st.session_state.get("auto_scroll_to", None)
-    if auto_scroll_to:
-        # requestAnimationFrame + setTimeout + リトライロジックで確実にスクロール
-        scroll_js = f"""
-        <script>
-        (function() {{
-            let retryCount = 0;
-            const maxRetries = 20; // 最大1秒（50ms × 20回）
-            const targetId = '{auto_scroll_to}';
-            
-            function attemptScroll() {{
-                requestAnimationFrame(function() {{
-                    const element = document.getElementById(targetId);
-                    if (element) {{
-                        // 要素が見つかったらスクロール実行
-                        element.scrollIntoView({{
-                            behavior: 'smooth',
-                            block: 'start'
-                        }});
-                        return true;
-                    }}
-                    return false;
-                }});
-            }}
-            
-            // 初回実行（50ms後）
-            setTimeout(function() {{
-                if (!attemptScroll()) {{
-                    // 要素が見つからない場合はリトライ
-                    const retryInterval = setInterval(function() {{
-                        retryCount++;
-                        if (attemptScroll() || retryCount >= maxRetries) {{
-                            clearInterval(retryInterval);
-                        }}
-                    }}, 50);
-                }}
-            }}, 100);
-        }})();
-        </script>
-        """
-        components.html(scroll_js, height=0)
-        st.session_state["auto_scroll_to"] = None  # 実行後は必ずクリア（二度と走らない）
+    perform_scroll_if_requested()
 
 
 # =========================================================
@@ -2745,67 +2370,19 @@ def main():
 
     user_id = st.session_state.get("user_id", None)
     if not user_id:
-        # サイドバー：ログイン（目立たない位置づけ）
-        with st.sidebar:
-            with st.expander("🔐 ログイン（既存ユーザー）", expanded=False):
-                render_login(in_sidebar=False)  # expander内なのでsidebar=False
-        
-        # メイン画面：ヒーロー領域（価値提案＋CTA）
-        st.markdown(f"# {APP_TITLE}")
-        
-        # サブコピー
+        render_login()
+        st.markdown(f"## {APP_TITLE}")
+        st.info("📱スマホの方：左上の「>>」を押すとログイン欄が出ます。")
+        st.info("左のサイドバーからログイン（または新規登録）してください。")
         st.markdown(
             """
-            <div style='font-size: 20px; font-weight: 500; color: var(--rn-subtext); margin-top: -8px; margin-bottom: 24px; line-height: 1.6;'>
-            収支・副業・SNS収益を "次にやる一手" まで可視化
-            </div>
-            """,
-            unsafe_allow_html=True
+**最初にやること（3分）**
+1. ユーザー登録 → ログイン  
+2. 収益を1件追加（例：会社｜給料｜200,000円）  
+3. 経費を1件追加（例：サブスク｜1,500円）  
+4. 資産（現金/株式/その他）を入力して保存（任意）  
+"""
         )
-        
-        # ベネフィット箇条書き
-        st.markdown(
-            """
-            <div style='margin-bottom: 32px;'>
-            <ul style='list-style: none; padding-left: 0;'>
-            <li style='margin-bottom: 12px; font-size: 16px;'>✓ 収入/支出を一瞬で整理</li>
-            <li style='margin-bottom: 12px; font-size: 16px;'>✓ ムダをAIが1行で指摘</li>
-            <li style='margin-bottom: 12px; font-size: 16px;'>✓ 改善アクションが分かる</li>
-            </ul>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        
-        # CTA（1つだけ、強調）
-        col_cta, _ = st.columns([0.4, 0.6])
-        with col_cta:
-            if st.button("今すぐ分析する", type="primary", use_container_width=True):
-                import random
-                import string
-                # ゲストユーザー名を自動生成
-                guest_username = f"guest_{''.join(random.choices(string.ascii_lowercase + string.digits, k=8))}"
-                guest_pin = "1234"  # 簡単なPIN
-                try:
-                    uid = create_user(guest_username, guest_pin)
-                    st.session_state["user_id"] = int(uid)
-                    st.session_state["username"] = guest_username
-                    st.session_state["is_guest"] = True  # ゲストフラグ
-                    st.session_state["onboarding_step"] = 1  # オンボーディング開始
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"試用開始に失敗しました：{e}")
-        
-        # 補足（小さく）
-        st.markdown(
-            """
-            <div style='margin-top: 16px; font-size: 13px; color: var(--rn-subtext);'>
-            登録は後でOK / データは外部公開されません
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        
         return
 
     start, end, goal, fixed, user_key = render_sidebar_after_login(int(user_id))
