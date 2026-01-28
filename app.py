@@ -1961,61 +1961,61 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     st.session_state["onboarding_step"] = 0
                     st.rerun()
 
-    # 画面上部に成功メッセージ用のplaceholderを配置（必ず見える位置・収益用）
-    top_success_placeholder = st.empty()
-    
     # 収益セクションのアンカーを配置（スクロールターゲット用・確実なID）
     st.markdown('<div id="income-section"></div>', unsafe_allow_html=True)
     
     st.subheader("➕ 収益を追加")
     with st.container(border=True):
-        c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
-        with c1:
-            e_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="e_day")
-        with c2:
+        # 日付（1カラム）
+        e_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="e_day")
+        
+        # プラットフォーム×カテゴリ（2カラム）
+        col1, col2 = st.columns(2)
+        with col1:
             e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform")
-        with c3:
+        with col2:
             e_cat = pick_with_other("カテゴリ", DEFAULT_EARN_CATEGORIES, key="e_cat")
-        with c4:
+        
+        # 金額×通貨（2カラム）
+        col3, col4 = st.columns(2)
+        with col3:
             # フォーム値リセット対応：追加成功後は金額を0にリセット
             default_amt = 0.0 if st.session_state.get("income_added", False) else st.session_state.get("e_amt_value", 0.0)
             e_amt = st.number_input("金額", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
             # 現在の値を保存（リセット用）
             if not st.session_state.get("income_added", False):
                 st.session_state["e_amt_value"] = e_amt
-        with c5:
+        with col4:
             e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur", format_func=currency_ja)
-        with c6:
-            e_memo = st.text_input("メモ（任意）", value="", key="e_memo")
-
+        
+        # メモ（1カラム）
+        e_memo = st.text_input("メモ（任意）", value="", key="e_memo")
+        
+        # 円換算（小さく表示）
         fx = get_fx_rates()
         st.caption(
-            f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}"
-            f"（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
+            f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
         )
         
-        if st.button("収益を追加", key="add_earning"):
+        # 送信ボタン（1カラム）
+        if st.button("収益を追加", key="add_earning", use_container_width=True):
             insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-            # 追加成功フラグを設定（全ユーザー対象）
+            # トーストフラグを設定（ページ最上部で表示・追加直後に必ず見える）
+            st.session_state["toast_revenue"] = True
+            # 追加成功フラグを設定（次アクション表示用）
             st.session_state["income_added"] = True
             # フォーム値をリセット（金額を0に）
             st.session_state["e_amt_value"] = 0.0
             st.rerun()
     
-    # 収益追加成功メッセージ＋次アクション（画面上部に表示・必ず見える位置）
+    # 収益追加成功後の次アクションCTA（フォーム直下に表示）
     if st.session_state.get("income_added", False):
-        with top_success_placeholder.container():
-            render_success_with_next_action(
-                success_message="✅ 収益を1件追加しました！",
-                next_action_label="次：経費を1件追加（約1分）",
-                cta_button_label="✍️ 経費入力セクションへ移動",
-                cta_button_key="goto_expense_btn",
-                target_anchor_id="expense-section",
-                flag_key="income_added",
-                scroll_flag_key="scroll_to_expense"
-            )
-    else:
-        top_success_placeholder.empty()
+        with st.container(border=True):
+            st.markdown("**次：経費を1件追加（約1分）**")
+            if st.button("✍️ 経費入力セクションへ移動", type="primary", use_container_width=True, key="goto_expense_btn"):
+                st.session_state["scroll_target"] = "expense-section"
+                st.session_state["income_added"] = False
+                st.rerun()
 
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
@@ -2023,58 +2023,52 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用・確実なID）
     st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
     
-    # 画面上部に成功メッセージ用のplaceholderを配置（必ず見える位置・経費用）
-    top_expense_success_placeholder = st.empty()
-    
     st.subheader("➖ 経費を追加")
     with st.container(border=True):
-        c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
-        with c1:
-            x_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="x_day")
-        with c2:
+        # 日付（1カラム）
+        x_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="x_day")
+        
+        # 支払先×カテゴリ（2カラム）
+        col1, col2 = st.columns(2)
+        with col1:
             x_vendor = st.text_input("支払先", value="ChatGPT", key="x_vendor")
-        with c3:
+        with col2:
             x_cat = pick_with_other("カテゴリ（経費）", DEFAULT_EXP_CATEGORIES, key="x_cat")
-        with c4:
+        
+        # 金額×通貨（2カラム）
+        col3, col4 = st.columns(2)
+        with col3:
             x_amt = st.number_input("金額（経費）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt")
-        with c5:
+        with col4:
             x_cur = st.selectbox("通貨（経費）", CURRENCY_OPTIONS, index=0, key="x_cur", format_func=currency_ja)
-        with c6:
-            x_memo = st.text_input("メモ（任意）", value="", key="x_memo")
-
+        
+        # メモ（1カラム）
+        x_memo = st.text_input("メモ（任意）", value="", key="x_memo")
+        
+        # 円換算（小さく表示）
         fx = get_fx_rates()
         st.caption(
-            f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}"
-            f"（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
+            f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
         )
         
-        if st.button("経費を追加", key="add_expense"):
+        # 送信ボタン（1カラム）
+        if st.button("経費を追加", key="add_expense", use_container_width=True):
             insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-            # 追加成功フラグを設定（全ユーザー対象）
-            st.session_state["expense_added"] = True
             # トーストフラグを設定（ページ最上部で表示）
             st.session_state["toast_expense"] = True
+            # 追加成功フラグを設定（次アクション表示用）
+            st.session_state["expense_added"] = True
             st.rerun()
     
-    # 経費追加成功メッセージ＋次アクション（画面上部に表示・必ず見える位置）
+    # 経費追加成功後の次アクションCTA（フォーム直下に表示）
     if st.session_state.get("expense_added", False):
-        with top_expense_success_placeholder.container():
-            # 結果セクション表示のコールバック
-            def show_results_callback():
+        with st.container(border=True):
+            st.markdown("**結果を見る準備ができました**")
+            if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
+                st.session_state["scroll_target"] = "results-section"
                 st.session_state["show_results_section"] = True
-            
-            render_success_with_next_action(
-                success_message="✅ 経費を1件追加しました！",
-                next_action_label="結果を見る準備ができました",
-                cta_button_label="📊 結果を見る",
-                cta_button_key="view_results_btn",
-                target_anchor_id="results-section",
-                flag_key="expense_added",
-                scroll_flag_key="scroll_to_results",
-                on_cta_click_callback=show_results_callback
-            )
-    else:
-        top_expense_success_placeholder.empty()
+                st.session_state["expense_added"] = False
+                st.rerun()
 
     with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
         render_recent_expenses_edit_delete(user_id, start, end, limit=3)
