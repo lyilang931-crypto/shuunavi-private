@@ -1895,17 +1895,52 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     """
                     <script>
                     (function() {
-                        setTimeout(function() {
+                        // 複数回試行して確実にスクロール（Streamlitのレンダリングタイミングに対応）
+                        function scrollToSuccess() {
                             const element = document.getElementById('success-earning');
                             if (element) {
-                                const yOffset = -80; // ヘッダー分のオフセット（スマホ対応）
-                                const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                                // スマホのビューポート高さを考慮
+                                const viewportHeight = window.innerHeight;
+                                const headerOffset = 100; // スマホヘッダー + 余白
+                                
+                                // 要素の位置を取得
+                                const rect = element.getBoundingClientRect();
+                                const elementTop = rect.top + window.pageYOffset;
+                                
+                                // ビューポートの上部から適切な距離（100px）に配置
+                                const scrollPosition = elementTop - headerOffset;
+                                
                                 window.scrollTo({
-                                    top: y,
+                                    top: Math.max(0, scrollPosition), // 負の値にならないように
                                     behavior: 'smooth'
                                 });
+                                
+                                // スクロール後の位置確認（念のため）
+                                setTimeout(function() {
+                                    const afterScroll = element.getBoundingClientRect().top;
+                                    // まだ視界外の場合は再調整
+                                    if (afterScroll < 50 || afterScroll > viewportHeight - 200) {
+                                        window.scrollTo({
+                                            top: elementTop - headerOffset,
+                                            behavior: 'smooth'
+                                        });
+                                    }
+                                }, 500);
+                                
+                                return true; // スクロール成功
                             }
-                        }, 300); // Streamlitのレンダリング完了を待つ
+                            return false; // 要素が見つからない
+                        }
+                        
+                        // 初回試行（300ms後）
+                        setTimeout(function() {
+                            if (!scrollToSuccess()) {
+                                // 要素が見つからない場合は再試行（600ms後）
+                                setTimeout(function() {
+                                    scrollToSuccess();
+                                }, 300);
+                            }
+                        }, 300);
                     })();
                     </script>
                     """,
@@ -1970,17 +2005,52 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     """
                     <script>
                     (function() {
-                        setTimeout(function() {
+                        // 複数回試行して確実にスクロール（Streamlitのレンダリングタイミングに対応）
+                        function scrollToSuccess() {
                             const element = document.getElementById('success-expense');
                             if (element) {
-                                const yOffset = -80; // ヘッダー分のオフセット（スマホ対応）
-                                const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                                // スマホのビューポート高さを考慮
+                                const viewportHeight = window.innerHeight;
+                                const headerOffset = 100; // スマホヘッダー + 余白
+                                
+                                // 要素の位置を取得
+                                const rect = element.getBoundingClientRect();
+                                const elementTop = rect.top + window.pageYOffset;
+                                
+                                // ビューポートの上部から適切な距離（100px）に配置
+                                const scrollPosition = elementTop - headerOffset;
+                                
                                 window.scrollTo({
-                                    top: y,
+                                    top: Math.max(0, scrollPosition), // 負の値にならないように
                                     behavior: 'smooth'
                                 });
+                                
+                                // スクロール後の位置確認（念のため）
+                                setTimeout(function() {
+                                    const afterScroll = element.getBoundingClientRect().top;
+                                    // まだ視界外の場合は再調整
+                                    if (afterScroll < 50 || afterScroll > viewportHeight - 200) {
+                                        window.scrollTo({
+                                            top: elementTop - headerOffset,
+                                            behavior: 'smooth'
+                                        });
+                                    }
+                                }, 500);
+                                
+                                return true; // スクロール成功
                             }
-                        }, 300); // Streamlitのレンダリング完了を待つ
+                            return false; // 要素が見つからない
+                        }
+                        
+                        // 初回試行（300ms後）
+                        setTimeout(function() {
+                            if (!scrollToSuccess()) {
+                                // 要素が見つからない場合は再試行（600ms後）
+                                setTimeout(function() {
+                                    scrollToSuccess();
+                                }, 300);
+                            }
+                        }, 300);
                     })();
                     </script>
                     """,
