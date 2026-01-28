@@ -1891,37 +1891,6 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     if "step" not in st.session_state:
         st.session_state["step"] = "income"
     
-    # =========================================================
-    # 自動スクロール処理（収益/経費追加成功時に次の導線が見える位置へ）
-    # =========================================================
-    auto_scroll_to = st.session_state.get("auto_scroll_to", None)
-    if auto_scroll_to:
-        # 成功メッセージ位置へ自動スクロール（下方向）
-        scroll_js = f"""
-        <script>
-        (function() {{
-            setTimeout(function() {{
-                const element = document.getElementById('{auto_scroll_to}');
-                if (element) {{
-                    element.scrollIntoView({{
-                        behavior: 'smooth',
-                        block: 'start'
-                    }});
-                }}
-            }}, 200);
-        }})();
-        </script>
-        """
-        components.html(scroll_js, height=0)
-        st.session_state["auto_scroll_to"] = None  # 実行後はクリア
-    
-    # =========================================================
-    # スクロール処理（rerun後に実行される構造・明示的なスクロール移動のみ）
-    # =========================================================
-    scroll_target = st.session_state.get("scroll_target", None)
-    if scroll_target:
-        scroll_to_section(scroll_target, delay_ms=300)
-        st.session_state["scroll_target"] = None
     
     # オンボーディング（ゲストユーザー向け）
     is_guest = st.session_state.get("is_guest", False)
@@ -2088,7 +2057,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             st.markdown("**次：経費を1件追加（約1分）**")
             if st.button("✍️ 経費入力セクションへ移動", type="primary", use_container_width=True, key="goto_expense_btn"):
                 st.session_state["step"] = "expense"  # step制：経費入力へ
-                st.session_state["scroll_target"] = "expense-section"  # スクロールターゲット設定
+                st.session_state["auto_scroll_to"] = "expense-section"  # スクロールターゲット設定（auto_scroll_toに統一）
                 st.rerun()
 
     # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用・確実なID）
@@ -2183,7 +2152,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             st.markdown("**結果を見る準備ができました**")
             if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
                 st.session_state["step"] = "result"  # step制：結果表示へ
-                st.session_state["scroll_target"] = "results-section"  # スクロールターゲット設定
+                st.session_state["auto_scroll_to"] = "results-section"  # スクロールターゲット設定（auto_scroll_toに統一）
                 st.session_state["show_results_section"] = True
                 st.rerun()
 
@@ -2605,6 +2574,52 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     render_ai_section(user_id, goal, fixed, user_key)
 
     st.success("狙い：入力→編集/削除→可視化→AI提案が1画面で回る")
+    
+    # =========================================================
+    # 自動スクロール処理（ページ末尾で実行・収益/経費追加成功時に次の導線が見える位置へ）
+    # =========================================================
+    auto_scroll_to = st.session_state.get("auto_scroll_to", None)
+    if auto_scroll_to:
+        # requestAnimationFrame + setTimeout + リトライロジックで確実にスクロール
+        scroll_js = f"""
+        <script>
+        (function() {{
+            let retryCount = 0;
+            const maxRetries = 20; // 最大1秒（50ms × 20回）
+            const targetId = '{auto_scroll_to}';
+            
+            function attemptScroll() {{
+                requestAnimationFrame(function() {{
+                    const element = document.getElementById(targetId);
+                    if (element) {{
+                        // 要素が見つかったらスクロール実行
+                        element.scrollIntoView({{
+                            behavior: 'smooth',
+                            block: 'start'
+                        }});
+                        return true;
+                    }}
+                    return false;
+                }});
+            }}
+            
+            // 初回実行（50ms後）
+            setTimeout(function() {{
+                if (!attemptScroll()) {{
+                    // 要素が見つからない場合はリトライ
+                    const retryInterval = setInterval(function() {{
+                        retryCount++;
+                        if (attemptScroll() || retryCount >= maxRetries) {{
+                            clearInterval(retryInterval);
+                        }}
+                    }}, 50);
+                }}
+            }}, 100);
+        }})();
+        </script>
+        """
+        components.html(scroll_js, height=0)
+        st.session_state["auto_scroll_to"] = None  # 実行後は必ずクリア（二度と走らない）
 
 
 # =========================================================
