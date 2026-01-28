@@ -1786,6 +1786,69 @@ def render_ai_section(user_id: int, goal: float, fixed: float, user_key: str):
 
 
 # =========================================================
+# UI: 成功メッセージ＋次アクションCTA（共通関数）
+# =========================================================
+def render_success_with_next_action(
+    success_message: str,
+    next_action_label: str,
+    cta_button_label: str,
+    cta_button_key: str,
+    target_anchor_id: str,
+    flag_key: str,
+    on_cta_click_callback: Optional[Callable] = None
+):
+    """
+    成功メッセージと次アクションCTAを画面上部に表示（スマホ最優先）
+    
+    Args:
+        success_message: 成功メッセージ（例：「✅ 収益を1件追加しました！」）
+        next_action_label: 次アクションの説明（例：「次：経費を1件追加（約1分）」）
+        cta_button_label: CTAボタンのラベル（例：「✍️ 経費入力セクションへ移動」）
+        cta_button_key: CTAボタンのキー（一意である必要がある）
+        target_anchor_id: スクロール先のアンカーID（例：「expense_section_anchor」）
+        flag_key: 成功フラグのキー（例：「income_added」）
+        on_cta_click_callback: CTA押下時の追加処理（オプション）
+    """
+    # トーストで即座にフィードバック（スクロール依存ゼロ）
+    st.toast(success_message, icon="✅")
+    
+    # 画面上部に成功メッセージ＋CTAを表示（必ず見える位置）
+    with st.container(border=True):
+        st.success(success_message)
+        st.markdown(f"**{next_action_label}**")
+        
+        # CTAボタン（ユーザーが押した時だけスクロール）
+        if st.button(cta_button_label, type="primary", use_container_width=True, key=cta_button_key):
+            # スクロール処理
+            st.markdown(
+                f"""
+                <script>
+                (function() {{
+                    setTimeout(function() {{
+                        const element = document.getElementById('{target_anchor_id}');
+                        if (element) {{
+                            element.scrollIntoView({{
+                                behavior: 'smooth',
+                                block: 'start'
+                            }});
+                        }}
+                    }}, 100);
+                }})();
+                </script>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            # 追加処理があれば実行
+            if on_cta_click_callback:
+                on_cta_click_callback()
+            
+            # フラグをクリア
+            st.session_state[flag_key] = False
+            st.rerun()
+
+
+# =========================================================
 # UI: メイン（赤字/黒字の矢印・色を統一 / 英語排除）
 # =========================================================
 def render_main(user_id: int, start: date, end: date, goal: float, fixed: float, user_key: str):
@@ -1848,6 +1911,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     st.session_state["onboarding_step"] = 0
                     st.rerun()
 
+    # 画面上部に成功メッセージ用のplaceholderを配置（必ず見える位置・収益用）
+    top_success_placeholder = st.empty()
+    
     st.subheader("➕ 収益を追加")
     with st.container(border=True):
         c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
@@ -1874,9 +1940,6 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}"
             f"（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
         )
-
-        # 成功メッセージ用のplaceholder（ボタンの直下に配置）
-        success_placeholder = st.empty()
         
         if st.button("収益を追加", key="add_earning"):
             insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
@@ -1885,52 +1948,30 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             # フォーム値をリセット（金額を0に）
             st.session_state["e_amt_value"] = 0.0
             st.rerun()
-        
-        # 収益追加直後の成功メッセージ＋次アクション（ボタン付近に表示）
-        if st.session_state.get("income_added", False):
-            # トーストで即座にフィードバック（スクロール依存ゼロ）
-            st.toast("✅ 収益を1件追加しました！", icon="✅")
-            
-            # placeholderに成功メッセージを表示（ボタンの直下）
-            with success_placeholder.container():
-                with st.container(border=True):
-                    st.success("✅ 収益を1件追加しました！")
-                    st.markdown("**次：経費を1件追加（約1分）**")
-                    
-                    # 経費セクションへ移動するボタン（ユーザーが押した時だけ移動）
-                    if st.button("📝 経費入力セクションへ移動", type="primary", use_container_width=True, key="goto_expense_btn"):
-                        st.markdown(
-                            """
-                            <script>
-                            (function() {
-                                setTimeout(function() {
-                                    const element = document.getElementById('expense_section_anchor');
-                                    if (element) {
-                                        element.scrollIntoView({
-                                            behavior: 'smooth',
-                                            block: 'start'
-                                        });
-                                    }
-                                }, 100);
-                            })();
-                            </script>
-                            """,
-                            unsafe_allow_html=True
-                        )
-                        st.session_state["income_added"] = False
-                        st.rerun()
-            
-            # フラグをクリア（次回表示時は表示しない）
-            st.session_state["income_added"] = False
-        else:
-            # フラグが立っていない場合はplaceholderを空にする
-            success_placeholder.empty()
+    
+    # 収益追加成功メッセージ＋次アクション（画面上部に表示・必ず見える位置）
+    if st.session_state.get("income_added", False):
+        with top_success_placeholder.container():
+            render_success_with_next_action(
+                success_message="✅ 収益を1件追加しました！",
+                next_action_label="次：経費を1件追加（約1分）",
+                cta_button_label="✍️ 経費入力セクションへ移動",
+                cta_button_key="goto_expense_btn",
+                target_anchor_id="expense_section_anchor",
+                flag_key="income_added"
+            )
+    else:
+        top_success_placeholder.empty()
 
     with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
         render_recent_earnings_edit_delete(user_id, start, end, limit=3)
 
     # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用）
     st.markdown('<div id="expense_section_anchor"></div>', unsafe_allow_html=True)
+    
+    # 画面上部に成功メッセージ用のplaceholderを配置（必ず見える位置・経費用）
+    top_expense_success_placeholder = st.empty()
+    
     st.subheader("➖ 経費を追加")
     with st.container(border=True):
         c1, c2, c3, c4, c5, c6 = st.columns([1.2, 1.3, 1.2, 1.0, 1.0, 1.3])
@@ -1952,38 +1993,31 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
             f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}"
             f"（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
         )
-
-        # 成功メッセージ用のplaceholder（ボタンの直下に配置）
-        expense_success_placeholder = st.empty()
         
         if st.button("経費を追加", key="add_expense"):
             insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
             # 追加成功フラグを設定（全ユーザー対象）
             st.session_state["expense_added"] = True
             st.rerun()
-        
-        # 経費追加直後の成功メッセージ＋結果を見るボタン（ボタン付近に表示）
-        if st.session_state.get("expense_added", False):
-            # トーストで即座にフィードバック（スクロール依存ゼロ）
-            st.toast("✅ 経費を1件追加しました！", icon="✅")
+    
+    # 経費追加成功メッセージ＋次アクション（画面上部に表示・必ず見える位置）
+    if st.session_state.get("expense_added", False):
+        with top_expense_success_placeholder.container():
+            # 結果セクション表示のコールバック
+            def show_results_callback():
+                st.session_state["show_results_section"] = True
             
-            # placeholderに成功メッセージを表示（ボタンの直下）
-            with expense_success_placeholder.container():
-                with st.container(border=True):
-                    st.success("✅ 経費を1件追加しました！")
-                    st.markdown("**結果を見る準備ができました**")
-                    
-                    # 結果セクションへのジャンプボタン（ユーザーが押した時だけ移動）
-                    if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
-                        st.session_state["show_results_section"] = True
-                        st.session_state["expense_added"] = False
-                        st.rerun()
-            
-            # フラグをクリア（次回表示時は表示しない）
-            st.session_state["expense_added"] = False
-        else:
-            # フラグが立っていない場合はplaceholderを空にする
-            expense_success_placeholder.empty()
+            render_success_with_next_action(
+                success_message="✅ 経費を1件追加しました！",
+                next_action_label="結果を見る準備ができました",
+                cta_button_label="📊 結果を見る",
+                cta_button_key="view_results_btn",
+                target_anchor_id="results_section_anchor",
+                flag_key="expense_added",
+                on_cta_click_callback=show_results_callback
+            )
+    else:
+        top_expense_success_placeholder.empty()
 
     with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
         render_recent_expenses_edit_delete(user_id, start, end, limit=3)
@@ -2026,6 +2060,9 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 st.success("✅ 今月は黒字です")
         
         st.markdown("---")
+        
+        # 結果セクションのアンカーを配置（スクロールターゲット用）
+        st.markdown('<div id="results_section_anchor"></div>', unsafe_allow_html=True)
         
         # 詳細結果（今月の状況）
         st.subheader("📊 今月の状況（詳細）")
