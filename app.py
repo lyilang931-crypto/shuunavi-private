@@ -1966,47 +1966,95 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     
     st.subheader("➕ 収益を追加")
     with st.container(border=True):
-        # 日付（1カラム）
-        e_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="e_day")
+        # ログイン前は最小フォーム、ログイン後は全項目表示
+        is_guest = st.session_state.get("is_guest", False)
         
-        # プラットフォーム×カテゴリ（2カラム）
-        col1, col2 = st.columns(2)
-        with col1:
-            e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform")
-        with col2:
-            e_cat = pick_with_other("カテゴリ", DEFAULT_EARN_CATEGORIES, key="e_cat")
-        
-        # 金額×通貨（2カラム）
-        col3, col4 = st.columns(2)
-        with col3:
-            # フォーム値リセット対応：追加成功後は金額を0にリセット
-            default_amt = 0.0 if st.session_state.get("income_added", False) else st.session_state.get("e_amt_value", 0.0)
-            e_amt = st.number_input("金額", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
-            # 現在の値を保存（リセット用）
-            if not st.session_state.get("income_added", False):
-                st.session_state["e_amt_value"] = e_amt
-        with col4:
-            e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur", format_func=currency_ja)
-        
-        # メモ（1カラム）
-        e_memo = st.text_input("メモ（任意）", value="", key="e_memo")
-        
-        # 円換算（小さく表示）
-        fx = get_fx_rates()
-        st.caption(
-            f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
-        )
-        
-        # 送信ボタン（1カラム）
-        if st.button("収益を追加", key="add_earning", use_container_width=True):
-            insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-            # トーストフラグを設定（ページ最上部で表示・追加直後に必ず見える）
-            st.session_state["toast_revenue"] = True
-            # 追加成功フラグを設定（次アクション表示用）
-            st.session_state["income_added"] = True
-            # フォーム値をリセット（金額を0に）
-            st.session_state["e_amt_value"] = 0.0
-            st.rerun()
+        if is_guest:
+            # ログイン前：最小フォーム（金額・カテゴリのみ）
+            # 日付はデフォルトで今日（任意）
+            e_day = today_date()
+            e_platform = "未設定"
+            e_memo = ""
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                # フォーム値リセット対応：追加成功後は金額を0にリセット
+                default_amt = 0.0 if st.session_state.get("income_added", False) else st.session_state.get("e_amt_value", 0.0)
+                e_amt = st.number_input("金額（必須）", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
+                # 現在の値を保存（リセット用）
+                if not st.session_state.get("income_added", False):
+                    st.session_state["e_amt_value"] = e_amt
+            with col2:
+                e_cat = pick_with_other("カテゴリ（必須）", DEFAULT_EARN_CATEGORIES, key="e_cat")
+            
+            # 詳細設定（折りたたみ）
+            with st.expander("📝 詳細設定（任意）", expanded=False):
+                e_day = st.date_input("日付", value=e_day, min_value=MIN_DAY, key="e_day")
+                e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform")
+                e_memo = st.text_input("メモ", value="", key="e_memo")
+                fx = get_fx_rates()
+                jpy_cur = "JPY"
+                st.caption(
+                    f"円換算（概算）：{yen(compute_jpy(e_amt, jpy_cur, fx))}（1円=1円）"
+                )
+            
+            # デフォルト値設定（ログイン前）
+            e_cur = "JPY"  # 円固定
+            if not e_platform or e_platform.strip() == "":
+                e_platform = "未設定"
+            if not e_memo:
+                e_memo = ""
+            
+            # 送信ボタン
+            if st.button("収益を追加", key="add_earning", use_container_width=True):
+                insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
+                st.session_state["toast_revenue"] = True
+                st.session_state["income_added"] = True
+                st.session_state["e_amt_value"] = 0.0
+                st.rerun()
+        else:
+            # ログイン後：全項目表示（既存のフォーム）
+            # 日付（1カラム）
+            e_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="e_day")
+            
+            # プラットフォーム×カテゴリ（2カラム）
+            col1, col2 = st.columns(2)
+            with col1:
+                e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform")
+            with col2:
+                e_cat = pick_with_other("カテゴリ", DEFAULT_EARN_CATEGORIES, key="e_cat")
+            
+            # 金額×通貨（2カラム）
+            col3, col4 = st.columns(2)
+            with col3:
+                # フォーム値リセット対応：追加成功後は金額を0にリセット
+                default_amt = 0.0 if st.session_state.get("income_added", False) else st.session_state.get("e_amt_value", 0.0)
+                e_amt = st.number_input("金額", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt")
+                # 現在の値を保存（リセット用）
+                if not st.session_state.get("income_added", False):
+                    st.session_state["e_amt_value"] = e_amt
+            with col4:
+                e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur", format_func=currency_ja)
+            
+            # メモ（1カラム）
+            e_memo = st.text_input("メモ（任意）", value="", key="e_memo")
+            
+            # 円換算（小さく表示）
+            fx = get_fx_rates()
+            st.caption(
+                f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
+            )
+            
+            # 送信ボタン（1カラム）
+            if st.button("収益を追加", key="add_earning", use_container_width=True):
+                insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
+                # トーストフラグを設定（ページ最上部で表示・追加直後に必ず見える）
+                st.session_state["toast_revenue"] = True
+                # 追加成功フラグを設定（次アクション表示用）
+                st.session_state["income_added"] = True
+                # フォーム値をリセット（金額を0に）
+                st.session_state["e_amt_value"] = 0.0
+                st.rerun()
     
     # 収益追加成功後の次アクションCTA（フォーム直下に表示）
     if st.session_state.get("income_added", False):
@@ -2025,40 +2073,82 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     
     st.subheader("➖ 経費を追加")
     with st.container(border=True):
-        # 日付（1カラム）
-        x_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="x_day")
+        # ログイン前は最小フォーム、ログイン後は全項目表示
+        is_guest = st.session_state.get("is_guest", False)
         
-        # 支払先×カテゴリ（2カラム）
-        col1, col2 = st.columns(2)
-        with col1:
-            x_vendor = st.text_input("支払先", value="ChatGPT", key="x_vendor")
-        with col2:
-            x_cat = pick_with_other("カテゴリ（経費）", DEFAULT_EXP_CATEGORIES, key="x_cat")
-        
-        # 金額×通貨（2カラム）
-        col3, col4 = st.columns(2)
-        with col3:
-            x_amt = st.number_input("金額（経費）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt")
-        with col4:
-            x_cur = st.selectbox("通貨（経費）", CURRENCY_OPTIONS, index=0, key="x_cur", format_func=currency_ja)
-        
-        # メモ（1カラム）
-        x_memo = st.text_input("メモ（任意）", value="", key="x_memo")
-        
-        # 円換算（小さく表示）
-        fx = get_fx_rates()
-        st.caption(
-            f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
-        )
-        
-        # 送信ボタン（1カラム）
-        if st.button("経費を追加", key="add_expense", use_container_width=True):
-            insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-            # トーストフラグを設定（ページ最上部で表示）
-            st.session_state["toast_expense"] = True
-            # 追加成功フラグを設定（次アクション表示用）
-            st.session_state["expense_added"] = True
-            st.rerun()
+        if is_guest:
+            # ログイン前：最小フォーム（金額・カテゴリのみ）
+            # 日付はデフォルトで今日（任意）
+            x_day = today_date()
+            x_vendor = "未設定"
+            x_memo = ""
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                x_amt = st.number_input("金額（必須）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt")
+            with col2:
+                x_cat = pick_with_other("カテゴリ（必須）", DEFAULT_EXP_CATEGORIES, key="x_cat")
+            
+            # 詳細設定（折りたたみ）
+            with st.expander("📝 詳細設定（任意）", expanded=False):
+                x_day = st.date_input("日付", value=x_day, min_value=MIN_DAY, key="x_day")
+                x_vendor = st.text_input("支払先", value="", key="x_vendor")
+                x_memo = st.text_input("メモ", value="", key="x_memo")
+                fx = get_fx_rates()
+                jpy_cur = "JPY"
+                st.caption(
+                    f"円換算（概算）：{yen(compute_jpy(x_amt, jpy_cur, fx))}（1円=1円）"
+                )
+            
+            # デフォルト値設定（ログイン前）
+            x_cur = "JPY"  # 円固定
+            if not x_vendor or x_vendor.strip() == "":
+                x_vendor = "未設定"
+            if not x_memo:
+                x_memo = ""
+            
+            # 送信ボタン
+            if st.button("経費を追加", key="add_expense", use_container_width=True):
+                insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
+                st.session_state["toast_expense"] = True
+                st.session_state["expense_added"] = True
+                st.rerun()
+        else:
+            # ログイン後：全項目表示（既存のフォーム）
+            # 日付（1カラム）
+            x_day = st.date_input("日付", value=today_date(), min_value=MIN_DAY, key="x_day")
+            
+            # 支払先×カテゴリ（2カラム）
+            col1, col2 = st.columns(2)
+            with col1:
+                x_vendor = st.text_input("支払先", value="ChatGPT", key="x_vendor")
+            with col2:
+                x_cat = pick_with_other("カテゴリ（経費）", DEFAULT_EXP_CATEGORIES, key="x_cat")
+            
+            # 金額×通貨（2カラム）
+            col3, col4 = st.columns(2)
+            with col3:
+                x_amt = st.number_input("金額（経費）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt")
+            with col4:
+                x_cur = st.selectbox("通貨（経費）", CURRENCY_OPTIONS, index=0, key="x_cur", format_func=currency_ja)
+            
+            # メモ（1カラム）
+            x_memo = st.text_input("メモ（任意）", value="", key="x_memo")
+            
+            # 円換算（小さく表示）
+            fx = get_fx_rates()
+            st.caption(
+                f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
+            )
+            
+            # 送信ボタン（1カラム）
+            if st.button("経費を追加", key="add_expense", use_container_width=True):
+                insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
+                # トーストフラグを設定（ページ最上部で表示）
+                st.session_state["toast_expense"] = True
+                # 追加成功フラグを設定（次アクション表示用）
+                st.session_state["expense_added"] = True
+                st.rerun()
     
     # 経費追加成功後の次アクションCTA（フォーム直下に表示）
     if st.session_state.get("expense_added", False):
