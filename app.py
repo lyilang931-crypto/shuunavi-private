@@ -2206,11 +2206,11 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 st.rerun()
     
     # =========================================================
-    # 経費追加成功メッセージ（フォーム直下に固定表示・「結果を見る」ボタンが見える位置）
+    # 経費追加成功メッセージ用アンカー（常設）＋カード表示
     # =========================================================
+    # アンカーIDを常にDOMに配置しておくことで、rerun直後でも確実にスクロール先が存在するようにする
+    st.markdown('<div id="expense-success-section"></div>', unsafe_allow_html=True)
     if st.session_state.get("step") == "expense_done":
-        # アンカーIDを設定（自動スクロールのターゲット）
-        st.markdown('<div id="expense-success-section"></div>', unsafe_allow_html=True)
         with st.container(border=True):
             st.success("✅ 経費を1件追加しました！")
             st.markdown("**結果を見る準備ができました**")
@@ -2229,10 +2229,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     is_guest = st.session_state.get("is_guest", False)
     current_step = st.session_state.get("step", "income")
     
+    # 結果セクション用アンカーを常設（表示有無に関わらずDOMに存在させる）
+    st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
+    
     # stepが"result"の場合、または既存のshow_results_sectionフラグが立っている場合に結果を表示
     if is_guest and (current_step == "result" or st.session_state.get("show_results_section", False)):
         st.markdown("---")
-        
         # ミニ結果（最上部に大きく表示）
         today = today_date()
         m_start, m_end = month_range(today)
@@ -2263,9 +2265,6 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 st.success("✅ 今月は黒字です")
         
         st.markdown("---")
-        
-        # 結果セクションのアンカーを配置（スクロールターゲット用・確実なID）
-        st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
         
         # 詳細結果（今月の状況）
         st.subheader("📊 今月の状況（詳細）")
