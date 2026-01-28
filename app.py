@@ -2030,7 +2030,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
                 st.session_state["step"] = "income_done"  # step制：収益追加成功
                 st.session_state["e_amt_value"] = 0.0
-                st.session_state["auto_scroll_to"] = "income-success-section"  # 成功メッセージ位置へ自動スクロール
+                st.session_state["auto_scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
                 st.rerun()
         else:
             # ログイン後：全項目表示（既存のフォーム）
@@ -2073,15 +2073,16 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 st.session_state["step"] = "income_done"
                 # フォーム値をリセット（金額を0に）
                 st.session_state["e_amt_value"] = 0.0
-                st.session_state["auto_scroll_to"] = "income-success-section"  # 成功メッセージ位置へ自動スクロール
+                st.session_state["auto_scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
                 st.rerun()
     
+    with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
+        render_recent_earnings_edit_delete(user_id, start, end, limit=3)
+
     # =========================================================
-    # 収益追加成功メッセージ（フォーム直下に固定表示・次の導線が見える位置）
+    # 収益追加成功メッセージ（経費セクション直前・スクロール先付近に表示）
     # =========================================================
     if st.session_state.get("step") == "income_done":
-        # アンカーIDを設定（自動スクロールのターゲット）
-        st.markdown('<div id="income-success-section"></div>', unsafe_allow_html=True)
         with st.container(border=True):
             st.success("✅ 収益を1件追加しました！")
             st.markdown("**次：経費を1件追加（約1分）**")
@@ -2089,9 +2090,6 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                 st.session_state["step"] = "expense"  # step制：経費入力へ
                 st.session_state["scroll_target"] = "expense-section"  # スクロールターゲット設定
                 st.rerun()
-
-    with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
-        render_recent_earnings_edit_delete(user_id, start, end, limit=3)
 
     # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用・確実なID）
     st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
