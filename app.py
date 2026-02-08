@@ -1661,105 +1661,6 @@ def render_assets_section(user_id: int):
         with st.expander("年ごとの内訳（表）", expanded=False):
             st.dataframe(df, use_container_width=True, hide_index=True)
 # =========================================================
-# AI（キー無しでも1回無料 + 自由質問モード）
-# =========================================================
-def _responses_api_call(api_key: str, messages: List[dict]) -> str:
-    """
-    OpenAI Responses API を requests で叩く（依存最小化）
-    """
-    import requests
-
-    # ★Pylance警告を100%消しつつ、動作も安定させるために関数内で確定させる
-    base_url = os.getenv("OPENAI_BASE_URL", globals().get("OPENAI_BASE_URL", "https://api.openai.com/v1")).strip()
-    model = os.getenv("OPENAI_MODEL", globals().get("OPENAI_MODEL", "gpt-5-mini")).strip()
-
-    url = f"{base_url}/responses"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "model": model,
-        "input": messages,
-    }
-
-    r = requests.post(url, headers=headers, json=payload, timeout=60)
-    if r.status_code >= 400:
-        raise RuntimeError(f"OpenAI API error {r.status_code}: {r.text}")
-
-    data = r.json()
-
-    out = data.get("output", [])
-    texts: List[str] = []
-    for item in out:
-        for c in item.get("content", []) or []:
-            t = c.get("text")
-            if t:
-                texts.append(t)
-
-    if not texts:
-        return str(data)
-    return "\n".join(texts).strip()
-
-
-def get_service_openai_key() -> str:
-    """
-    運営側キー（環境変数）取得。未設定なら空文字。
-    """
-    return (os.getenv("OPENAI_API_KEY", "") or "").strip()
-
-
-def can_use_service_ai(user_id: int) -> Tuple[bool, str]:
-    """
-    サービスキー（OPENAI_API_KEY）でAIを使えるか？
-    無料ユーザー：1人1回だけ（ai_free_usedで管理）
-    """
-    settings = get_user_settings(user_id)
-    free_used = int(settings.get("ai_free_used", 0)) == 1
-    service_key = get_service_openai_key()
-    if not service_key:
-        return False, "運営側のOpenAIキーが未設定です。"
-    if free_used:
-        return False, "無料枠（1回）は既に使用済みです。"
-    return True, ""
-
-
-def get_effective_api_key(user_id: int, user_supplied_key: str) -> Tuple[Optional[str], str, bool]:
-    """
-    返り値: (api_key, 状態メッセージ, using_service_key)
-    - user_supplied_key があればそれを優先（回数制限なし）
-    - なければサービスキー（無料1回）を使う
-    """
-    user_supplied_key = (user_supplied_key or "").strip()
-    if user_supplied_key:
-        return user_supplied_key, "ユーザーキー", False
-
-    ok, reason = can_use_service_ai(user_id)
-    if not ok:
-        return None, reason, False
-
-    return get_service_openai_key(), "無料1回", True
-
-
-def run_ai_with_limits(user_id: int, user_supplied_key: str, messages: List[dict]) -> Tuple[Optional[str], str]:
-    """
-    無料枠管理を含めてAI実行。
-    """
-    api_key, mode, using_service = get_effective_api_key(user_id, user_supplied_key)
-    if not api_key:
-        return None, mode
-
-    try:
-        txt = _responses_api_call(api_key, messages)
-        if using_service:
-            mark_ai_free_used(user_id)
-        return txt, "ok"
-    except Exception as e:
-        return None, f"AI呼び出しに失敗：{e}"
-
-
-# =========================================================
 # UI: AI（分析＋自由質問チャット）
 # =========================================================
 def render_ai_section(user_id: int, goal: float, fixed: float, user_key: str):
@@ -1992,446 +1893,317 @@ def perform_scroll_if_requested() -> None:
 # =========================================================
 # UI: 成功メッセージ＋次アクションCTA（共通関数）
 # =========================================================
-def render_success_with_next_action(
-    success_message: str,
-    next_action_label: str,
-    cta_button_label: str,
-    cta_button_key: str,
-    target_anchor_id: str,
-    flag_key: str,
-    scroll_flag_key: str,
-    on_cta_click_callback: Optional[Callable] = None
-):
-    """
-    成功メッセージと次アクションCTAを画面上部に表示（スマホ最優先）
-    
-    Args:
-        success_message: 成功メッセージ（例：「✅ 収益を1件追加しました！」）
-        next_action_label: 次アクションの説明（例：「次：経費を1件追加（約1分）」）
-        cta_button_label: CTAボタンのラベル（例：「✍️ 経費入力セクションへ移動」）
-        cta_button_key: CTAボタンのキー（一意である必要がある）
-        target_anchor_id: スクロール先のアンカーID（例：「expense-section」）
-        flag_key: 成功フラグのキー（例：「income_added」）
-        scroll_flag_key: スクロールフラグのキー（例：「scroll_to_expense」）
-        on_cta_click_callback: CTA押下時の追加処理（オプション）
-    """
-    # 画面上部に成功メッセージ＋CTAを表示（必ず見える位置）
-    # 注意：トーストはrender_mainの最上部で表示されるため、ここでは表示しない
-    with st.container(border=True):
-        st.success(success_message)
-        st.markdown(f"**{next_action_label}**")
-        
-        # CTAボタン（ユーザーが押した時だけスクロール）
-        if st.button(cta_button_label, type="primary", use_container_width=True, key=cta_button_key):
-            # スクロールフラグを設定（次回レンダリングでスクロール実行）
-            st.session_state[scroll_flag_key] = True
-            
-            # 追加処理があれば実行
-            if on_cta_click_callback:
-                on_cta_click_callback()
-            
-            # フラグをクリア
-            st.session_state[flag_key] = False
-            st.rerun()
-    
-    # スクロールフラグが立っている場合はスクロール実行
-    if st.session_state.get(scroll_flag_key, False):
-        scroll_to_section(target_anchor_id, delay_ms=300)
-        st.session_state[scroll_flag_key] = False
-
-
-# =========================================================
 # UI: メイン（赤字/黒字の矢印・色を統一 / 英語排除）
 # =========================================================
 def render_main(user_id: int, start: date, end: date, goal: float, fixed: float, user_key: str):
+    # FIX: ゲスト判定を最初に1回だけ行い、以降で使い回す
+    is_guest = st.session_state.get("is_guest", False)
+
     st.markdown(f"## {APP_TITLE}")
     st.caption("今月の利益・先月比・利益率が一瞬でわかる")
 
-    with st.container(border=True):
-        st.markdown("### 📥 CSVインポート（最小）")
-        uploaded = st.file_uploader(
-            "CSVファイルを選択（date/日付, revenue/売上, expense/支出）",
-            type=["csv"],
-            accept_multiple_files=False,
-        )
-        if uploaded:
-            try:
-                raw_df = pd.read_csv(uploaded)
-            except Exception as e:
-                st.error(f"CSVの読み込みに失敗しました：{e}")
-            else:
-                normalized_df, missing = normalize_csv_columns(raw_df)
-                if missing:
-                    st.error(f"不足している列：{', '.join(missing)}")
-                else:
-                    cleaned_df, invalid_rows = prepare_kpi_df(normalized_df)
-                    if invalid_rows > 0:
-                        st.warning(f"日付を解析できない行を {invalid_rows} 行除外しました。")
-                    kpis = compute_kpis(cleaned_df)
-                    k1, k2, k3 = st.columns(3)
-                    k1.metric("今月売上", yen(kpis["revenue"]))
-                    k2.metric("先月比（売上）", yen(kpis["mom_change"]))
-                    k3.metric("利益", yen(kpis["profit"]))
-    
-    # =========================================================
-    # step制の初期化（状態管理）
-    # =========================================================
-    if "step" not in st.session_state:
-        st.session_state["step"] = "income"
-    
-    # オンボーディング（ゲストユーザー向け）
-    is_guest = st.session_state.get("is_guest", False)
-    onboarding_step = st.session_state.get("onboarding_step", 0)
-    
-    if is_guest and onboarding_step > 0:
-        today = today_date()
-        m_start, m_end = month_range(today)
-        m_earn = load_earnings(user_id, m_start, m_end)
-        m_exp = load_expenses(user_id, m_start, m_end)
-        
+    # FIX: CSVインポートはログインユーザーのみ表示（ゲスト時は非表示）
+    if not is_guest:
         with st.container(border=True):
-            # ガイド文言（目的を1点に絞る）
-            st.markdown("### 🎯 まずは収益を1件だけ入力してください（約1分）")
-            st.markdown(
-                """
-                <div style='margin-top: 8px; margin-bottom: 16px; font-size: 14px; color: var(--rn-subtext);'>
-                このあと分かること：<br>
-                ・今月の収支バランス<br>
-                ・一番ムダな支出<br>
-                ・改善アクション（AI）
-                </div>
-                """,
-                unsafe_allow_html=True
+            st.markdown("### 📥 CSVインポート（最小）")
+            uploaded = st.file_uploader(
+                "CSVファイルを選択（date/日付, revenue/売上, expense/支出）",
+                type=["csv"],
+                accept_multiple_files=False,
             )
-            
-            step1_done = not m_earn.empty
-            step2_done = not m_exp.empty
-            step3_done = step1_done and step2_done
-            
-            # 進捗アンロック方式：完了したステップと次のステップのみ表示
-            if not step1_done:
-                # 初期：①のみ表示
-                st.markdown(f"**① 収益を1件追加**")
-            elif step1_done and not step2_done:
-                # ①完了後：①✅と②を表示
-                st.markdown(f"**✅ 収益を1件追加**（完了！）")
-                st.markdown("---")
-                st.markdown(f"**② 経費を1件追加**")
-            elif step1_done and step2_done and not step3_done:
-                # ①②完了後：①②✅と③を表示
-                st.markdown(f"**✅ 収益を1件追加**（完了！）")
-                st.markdown(f"**✅ 経費を1件追加**（完了！）")
-                st.markdown("---")
-                st.markdown(f"**③ 結果を見る**")
-            else:
-                # すべて完了
-                st.markdown(f"**✅ 収益を1件追加**（完了！）")
-                st.markdown(f"**✅ 経費を1件追加**（完了！）")
-                st.markdown(f"**✅ 結果を見る**（完了！）")
-            
-            if step3_done:
-                st.markdown("---")
-                st.success("🎉 試用完了！データを保存するには、サイドバー(>>)からログイン（ユーザー名/PIN）を設定してください。")
-                if st.button("オンボーディングを閉じる", key="close_onboarding"):
-                    st.session_state["onboarding_step"] = 0
-                    st.rerun()
+            if uploaded:
+                try:
+                    raw_df = pd.read_csv(uploaded)
+                except Exception as e:
+                    st.error(f"CSVの読み込みに失敗しました：{e}")
+                else:
+                    normalized_df, missing = normalize_csv_columns(raw_df)
+                    if missing:
+                        st.error(f"不足している列：{', '.join(missing)}")
+                    else:
+                        cleaned_df, invalid_rows = prepare_kpi_df(normalized_df)
+                        if invalid_rows > 0:
+                            st.warning(f"日付を解析できない行を {invalid_rows} 行除外しました。")
+                        kpis = compute_kpis(cleaned_df)
+                        k1, k2, k3 = st.columns(3)
+                        k1.metric("今月売上", yen(kpis["revenue"]))
+                        k2.metric("先月比（売上）", yen(kpis["mom_change"]))
+                        k3.metric("利益", yen(kpis["profit"]))
 
-    # 収益セクションのアンカーを配置（スクロールターゲット用・確実なID）
+    # =========================================================
+    # FIX: ゲスト向け簡易プログレス（スマホ最適化・コンパクト）
+    # =========================================================
+    if is_guest:
+        _td0 = today_date()
+        _ms0, _me0 = month_range(_td0)
+        _g_earn = load_earnings(user_id, _ms0, _me0)
+        _g_exp = load_expenses(user_id, _ms0, _me0)
+        _step1 = not _g_earn.empty
+        _step2 = not _g_exp.empty
+
+        with st.container(border=True):
+            st.markdown("### 🎯 まずは収支を入力してみましょう")
+            _pc1, _pc2, _pc3 = st.columns(3)
+            with _pc1:
+                st.markdown("✅ 収益入力" if _step1 else "**① 収益入力**")
+            with _pc2:
+                if _step2:
+                    st.markdown("✅ 経費入力")
+                elif _step1:
+                    st.markdown("**② 経費入力**")
+                else:
+                    st.markdown("② 経費入力")
+            with _pc3:
+                st.markdown("✅ 結果確認" if (_step1 and _step2) else "③ 結果確認")
+
+    # =========================================================
+    # 収益セクション
+    # =========================================================
     st.markdown('<div id="income-section"></div>', unsafe_allow_html=True)
-    
     st.subheader("➕ 収益を追加")
     with st.container(border=True):
-        # ログイン前は最小フォーム、ログイン後は全項目表示
-        is_guest = st.session_state.get("is_guest", False)
-        
         if is_guest:
-            # ログイン前：最小フォーム（金額・カテゴリのみ）
-            # 日付はデフォルトで今日（任意）
-            e_day = today_date()
-            e_platform = "未設定"
-            e_memo = ""
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                # フォーム値リセット対応：追加成功後は金額を0にリセット
-                current_step = st.session_state.get("step", "income")
-                default_amt = 0.0 if current_step == "income_done" else st.session_state.get("e_amt_value", 0.0)
-                e_amt = st.number_input("金額（必須）", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt_guest")
-                # 現在の値を保存（リセット用）
-                if current_step != "income_done":
-                    st.session_state["e_amt_value"] = e_amt
-            with col2:
-                e_cat = pick_with_other("カテゴリ（必須）", DEFAULT_EARN_CATEGORIES, key="e_cat_guest")
-            
-            # 詳細設定（折りたたみ）
+            # FIX: ゲスト用 最小フォーム（キーを ginc__ に統一・重複排除）
+            _g_e_day = today_date()
+            _g_e_platform = "未設定"
+            _g_e_memo = ""
+
+            _gc1, _gc2 = st.columns(2)
+            with _gc1:
+                _g_e_amt = st.number_input(
+                    "金額（必須）", min_value=0.0, value=0.0,
+                    step=1.0, format="%.0f", key=ui_key("ginc", "amt"),
+                )
+            with _gc2:
+                _g_e_cat = pick_with_other(
+                    "カテゴリ（必須）", DEFAULT_EARN_CATEGORIES,
+                    key=ui_key("ginc", "cat"),
+                )
+
             with st.expander("📝 詳細設定（任意）", expanded=False):
-                e_day = st.date_input(
-                    "日付",
-                    value=e_day,
-                    min_value=MIN_DAY,
-                    key=ui_key("income_guest", "day"),
+                _g_e_day = st.date_input(
+                    "日付", value=_g_e_day, min_value=MIN_DAY,
+                    key=ui_key("ginc", "day"),
                 )
-                e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform_guest")
-                e_memo = st.text_input("メモ", value="", key="e_memo_guest")
-                fx = get_fx_rates()
-                jpy_cur = "JPY"
-                st.caption(
-                    f"円換算（概算）：{yen(compute_jpy(e_amt, jpy_cur, fx))}（1円=1円）"
+                _g_e_platform = pick_with_other(
+                    "プラットフォーム", DEFAULT_PLATFORMS,
+                    key=ui_key("ginc", "plat"),
                 )
-            
-            # デフォルト値設定（ログイン前）
-            e_cur = "JPY"  # 円固定
-            # expander内で入力された値を取得（expanderが閉じていても値は保持される）
-            if "e_platform_guest" in st.session_state:
-                e_platform = st.session_state.get("e_platform_guest", "未設定")
-            if "e_memo_guest" in st.session_state:
-                e_memo = st.session_state.get("e_memo_guest", "")
-            if not e_platform or e_platform.strip() == "":
-                e_platform = "未設定"
-            if not e_memo:
-                e_memo = ""
-            
-            # 送信ボタン
-            if st.button("収益を追加", key="add_earning_guest", use_container_width=True):
-                insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-                st.session_state["step"] = "income_done"  # step制：収益追加成功
-                st.session_state["e_amt_value"] = 0.0
-                st.session_state["scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
+                _g_e_memo = st.text_input("メモ", value="", key=ui_key("ginc", "memo"))
+                _fx = get_fx_rates()
+                st.caption(f"円換算（概算）：{yen(compute_jpy(_g_e_amt, 'JPY', _fx))}（1円=1円）")
+
+            _g_e_cur = "JPY"
+
+            if st.button("収益を追加", key=ui_key("ginc", "submit"), use_container_width=True):
+                insert_earning(user_id, _g_e_day, _g_e_platform, _g_e_cat, _g_e_cur, float(_g_e_amt), _g_e_memo)
+                # FIX: 成功メッセージを結果カード下に表示
+                st.session_state["success_msg"] = "✅ 収益を1件追加しました！"
+                st.session_state["scroll_to"] = "expense-section"
                 st.rerun()
         else:
-            # ログイン後：全項目表示（既存のフォーム）
-            # 日付（1カラム）
-            e_day = st.date_input(
-                "日付",
-                value=today_date(),
-                min_value=MIN_DAY,
-                key=ui_key("income_logged", "day"),
+            # FIX: ログイン後 全項目（キーを linc__ に統一・重複排除）
+            _l_e_day = st.date_input(
+                "日付", value=today_date(), min_value=MIN_DAY,
+                key=ui_key("linc", "day"),
             )
-            
-            # プラットフォーム×カテゴリ（2カラム）
-            col1, col2 = st.columns(2)
-            with col1:
-                e_platform = pick_with_other("プラットフォーム", DEFAULT_PLATFORMS, key="e_platform_logged")
-            with col2:
-                e_cat = pick_with_other("カテゴリ", DEFAULT_EARN_CATEGORIES, key="e_cat_logged")
 
-            # 金額×通貨（2カラム）
-            col3, col4 = st.columns(2)
-            with col3:
-                # フォーム値リセット対応：追加成功後は金額を0にリセット
-                current_step = st.session_state.get("step", "income")
-                default_amt = 0.0 if current_step == "income_done" else st.session_state.get("e_amt_value", 0.0)
-                e_amt = st.number_input("金額", min_value=0.0, value=default_amt, step=1.0, format="%.0f", key="e_amt_logged")
-                # 現在の値を保存（リセット用）
-                if current_step != "income_done":
-                    st.session_state["e_amt_value"] = e_amt
-            with col4:
-                e_cur = st.selectbox("通貨", CURRENCY_OPTIONS, index=0, key="e_cur_logged", format_func=currency_ja)
-            
-            # メモ（1カラム）
-            e_memo = st.text_input("メモ（任意）", value="", key="e_memo_logged")
-            
-            # 円換算（小さく表示）
-            fx = get_fx_rates()
+            _lc1, _lc2 = st.columns(2)
+            with _lc1:
+                _l_e_platform = pick_with_other(
+                    "プラットフォーム", DEFAULT_PLATFORMS,
+                    key=ui_key("linc", "plat"),
+                )
+            with _lc2:
+                _l_e_cat = pick_with_other(
+                    "カテゴリ", DEFAULT_EARN_CATEGORIES,
+                    key=ui_key("linc", "cat"),
+                )
+
+            _lc3, _lc4 = st.columns(2)
+            with _lc3:
+                _l_e_amt = st.number_input(
+                    "金額", min_value=0.0, value=0.0,
+                    step=1.0, format="%.0f", key=ui_key("linc", "amt"),
+                )
+            with _lc4:
+                _l_e_cur = st.selectbox(
+                    "通貨", CURRENCY_OPTIONS, index=0,
+                    key=ui_key("linc", "cur"), format_func=currency_ja,
+                )
+
+            _l_e_memo = st.text_input("メモ（任意）", value="", key=ui_key("linc", "memo"))
+
+            _fx = get_fx_rates()
             st.caption(
-                f"円換算（概算）：{yen(compute_jpy(e_amt, e_cur, fx))}（1{currency_ja(e_cur)}={int(round(fx.get(e_cur, 1.0)))}円）"
+                f"円換算（概算）：{yen(compute_jpy(_l_e_amt, _l_e_cur, _fx))}"
+                f"（1{currency_ja(_l_e_cur)}={int(round(_fx.get(_l_e_cur, 1.0)))}円）"
             )
-            
-            # 送信ボタン（1カラム）
-            if st.button("収益を追加", key="add_earning_logged", use_container_width=True):
-                insert_earning(user_id, e_day, e_platform, e_cat, e_cur, float(e_amt), e_memo)
-                # step制：収益追加成功
-                st.session_state["step"] = "income_done"
-                # フォーム値をリセット（金額を0に）
-                st.session_state["e_amt_value"] = 0.0
-                st.session_state["scroll_to"] = "expense-section"  # 経費セクション先頭へ自動スクロール
-                st.rerun()
-    
-    # 収益追加成功メッセージ用アンカー（常設）
-    st.markdown('<div id="income-success-section"></div>', unsafe_allow_html=True)
-    if st.session_state.get("step") == "income_done":
-        with st.container(border=True):
-            st.success("✅ 収益を1件追加しました！")
-            st.markdown("**次：経費を1件追加（約1分）**")
 
-    # ログイン後のみ表示（ゲスト時は非表示）
-    is_guest = st.session_state.get("is_guest", False)
+            if st.button("収益を追加", key=ui_key("linc", "submit"), use_container_width=True):
+                insert_earning(user_id, _l_e_day, _l_e_platform, _l_e_cat, _l_e_cur, float(_l_e_amt), _l_e_memo)
+                st.session_state["success_msg"] = "✅ 収益を1件追加しました！"
+                st.session_state["scroll_to"] = "expense-section"
+                st.rerun()
+
+    # FIX: 直近の収益（ログイン後のみ）
     if not is_guest:
         with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
             render_recent_earnings_edit_delete(user_id, start, end, limit=3)
 
-    # 経費入力フォームの見出し直前にアンカーを配置（スクロールターゲット用・確実なID）
+    # =========================================================
+    # 経費セクション
+    # =========================================================
     st.markdown('<div id="expense-section"></div>', unsafe_allow_html=True)
-    
     st.subheader("➖ 経費を追加")
     with st.container(border=True):
-        # ログイン前は最小フォーム、ログイン後は全項目表示
-        is_guest = st.session_state.get("is_guest", False)
-        
         if is_guest:
-            # ログイン前：最小フォーム（金額・カテゴリのみ）
-            # 日付はデフォルトで今日（任意）
-            x_day = today_date()
-            x_vendor = "未設定"
-            x_memo = ""
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                x_amt = st.number_input("金額（必須）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt_guest")
-            with col2:
-                x_cat = pick_with_other("カテゴリ（必須）", DEFAULT_EXP_CATEGORIES, key="x_cat_guest")
-            
-            # 詳細設定（折りたたみ）
+            # FIX: ゲスト用 最小フォーム（キーを gexp__ に統一・重複排除）
+            _g_x_day = today_date()
+            _g_x_vendor = "未設定"
+            _g_x_memo = ""
+
+            _gxc1, _gxc2 = st.columns(2)
+            with _gxc1:
+                _g_x_amt = st.number_input(
+                    "金額（必須）", min_value=0.0, value=0.0,
+                    step=1.0, format="%.0f", key=ui_key("gexp", "amt"),
+                )
+            with _gxc2:
+                _g_x_cat = pick_with_other(
+                    "カテゴリ（必須）", DEFAULT_EXP_CATEGORIES,
+                    key=ui_key("gexp", "cat"),
+                )
+
             with st.expander("📝 詳細設定（任意）", expanded=False):
-                x_day = st.date_input(
-                    "日付",
-                    value=x_day,
-                    min_value=MIN_DAY,
-                    key=ui_key("expense_guest", "day"),
+                _g_x_day = st.date_input(
+                    "日付", value=_g_x_day, min_value=MIN_DAY,
+                    key=ui_key("gexp", "day"),
                 )
-                x_vendor = st.text_input("支払先", value="", key="x_vendor_guest")
-                x_memo = st.text_input("メモ", value="", key="x_memo_guest")
-                fx = get_fx_rates()
-                jpy_cur = "JPY"
-                st.caption(
-                    f"円換算（概算）：{yen(compute_jpy(x_amt, jpy_cur, fx))}（1円=1円）"
-                )
-            
-            # デフォルト値設定（ログイン前）
-            x_cur = "JPY"  # 円固定
-            # expander内で入力された値を取得（expanderが閉じていても値は保持される）
-            if "x_vendor_guest" in st.session_state:
-                x_vendor = st.session_state.get("x_vendor_guest", "未設定")
-            if "x_memo_guest" in st.session_state:
-                x_memo = st.session_state.get("x_memo_guest", "")
-            if not x_vendor or x_vendor.strip() == "":
-                x_vendor = "未設定"
-            if not x_memo:
-                x_memo = ""
-            
-            # 送信ボタン
-            if st.button("経費を追加", key="add_expense_guest", use_container_width=True):
-                insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-                st.session_state["step"] = "expense_done"  # step制：経費追加成功
-                st.session_state["scroll_to"] = "expenses-list-section"  # 経費一覧セクション先頭へ自動スクロール
+                _g_x_vendor = st.text_input("支払先", value="", key=ui_key("gexp", "vendor"))
+                _g_x_memo = st.text_input("メモ", value="", key=ui_key("gexp", "memo"))
+                _fx = get_fx_rates()
+                st.caption(f"円換算（概算）：{yen(compute_jpy(_g_x_amt, 'JPY', _fx))}（1円=1円）")
+
+            _g_x_cur = "JPY"
+            if not _g_x_vendor or _g_x_vendor.strip() == "":
+                _g_x_vendor = "未設定"
+
+            if st.button("経費を追加", key=ui_key("gexp", "submit"), use_container_width=True):
+                insert_expense(user_id, _g_x_day, _g_x_vendor, _g_x_cat, _g_x_cur, float(_g_x_amt), _g_x_memo)
+                st.session_state["success_msg"] = "✅ 経費を1件追加しました！"
+                st.session_state["scroll_to"] = "expenses-list-section"
                 st.rerun()
         else:
-            # ログイン後：全項目表示（既存のフォーム）
-            # 日付（1カラム）
-            x_day = st.date_input(
-                "日付",
-                value=today_date(),
-                min_value=MIN_DAY,
-                key=ui_key("expense_logged", "day"),
+            # FIX: ログイン後 全項目（キーを lexp__ に統一・重複排除）
+            _l_x_day = st.date_input(
+                "日付", value=today_date(), min_value=MIN_DAY,
+                key=ui_key("lexp", "day"),
             )
-            
-            # 支払先×カテゴリ（2カラム）
-            col1, col2 = st.columns(2)
-            with col1:
-                x_vendor = st.text_input("支払先", value="ChatGPT", key="x_vendor_logged")
-            with col2:
-                x_cat = pick_with_other("カテゴリ（経費）", DEFAULT_EXP_CATEGORIES, key="x_cat_logged")
 
-            # 金額×通貨（2カラム）
-            col3, col4 = st.columns(2)
-            with col3:
-                x_amt = st.number_input("金額（経費）", min_value=0.0, value=0.0, step=1.0, format="%.0f", key="x_amt_logged")
-            with col4:
-                x_cur = st.selectbox("通貨（経費）", CURRENCY_OPTIONS, index=0, key="x_cur_logged", format_func=currency_ja)
-            
-            # メモ（1カラム）
-            x_memo = st.text_input("メモ（任意）", value="", key="x_memo_logged")
-            
-            # 円換算（小さく表示）
-            fx = get_fx_rates()
+            _lxc1, _lxc2 = st.columns(2)
+            with _lxc1:
+                _l_x_vendor = st.text_input("支払先", value="ChatGPT", key=ui_key("lexp", "vendor"))
+            with _lxc2:
+                _l_x_cat = pick_with_other(
+                    "カテゴリ（経費）", DEFAULT_EXP_CATEGORIES,
+                    key=ui_key("lexp", "cat"),
+                )
+
+            _lxc3, _lxc4 = st.columns(2)
+            with _lxc3:
+                _l_x_amt = st.number_input(
+                    "金額（経費）", min_value=0.0, value=0.0,
+                    step=1.0, format="%.0f", key=ui_key("lexp", "amt"),
+                )
+            with _lxc4:
+                _l_x_cur = st.selectbox(
+                    "通貨（経費）", CURRENCY_OPTIONS, index=0,
+                    key=ui_key("lexp", "cur"), format_func=currency_ja,
+                )
+
+            _l_x_memo = st.text_input("メモ（任意）", value="", key=ui_key("lexp", "memo"))
+
+            _fx = get_fx_rates()
             st.caption(
-                f"円換算（概算）：{yen(compute_jpy(x_amt, x_cur, fx))}（1{currency_ja(x_cur)}={int(round(fx.get(x_cur, 1.0)))}円）"
+                f"円換算（概算）：{yen(compute_jpy(_l_x_amt, _l_x_cur, _fx))}"
+                f"（1{currency_ja(_l_x_cur)}={int(round(_fx.get(_l_x_cur, 1.0)))}円）"
             )
-            
-            # 送信ボタン（1カラム）
-            if st.button("経費を追加", key="add_expense_logged", use_container_width=True):
-                insert_expense(user_id, x_day, x_vendor, x_cat, x_cur, float(x_amt), x_memo)
-                # step制：経費追加成功
-                st.session_state["step"] = "expense_done"
-                st.session_state["scroll_to"] = "expenses-list-section"  # 経費一覧セクション先頭へ自動スクロール
-                st.rerun()
-    
-    # 経費追加成功メッセージ用アンカー（常設）
-    st.markdown('<div id="expense-success-section"></div>', unsafe_allow_html=True)
-    if st.session_state.get("step") == "expense_done":
-        with st.container(border=True):
-            st.success("✅ 経費を1件追加しました！")
-            st.markdown("**結果を見る準備ができました**")
 
-    # 経費一覧（編集/削除）用アンカー（常設）
+            if st.button("経費を追加", key=ui_key("lexp", "submit"), use_container_width=True):
+                insert_expense(user_id, _l_x_day, _l_x_vendor, _l_x_cat, _l_x_cur, float(_l_x_amt), _l_x_memo)
+                st.session_state["success_msg"] = "✅ 経費を1件追加しました！"
+                st.session_state["scroll_to"] = "expenses-list-section"
+                st.rerun()
+
+    # FIX: 経費一覧アンカー（スクロールターゲット）
     st.markdown('<div id="expenses-list-section"></div>', unsafe_allow_html=True)
 
-    # ログイン後のみ表示（ゲスト時は非表示）
-    is_guest = st.session_state.get("is_guest", False)
-    if not is_guest:
+    # FIX: ゲスト用 直近の経費リスト（読み取り専用・スマホ向け簡潔表示）
+    if is_guest:
+        _td1 = today_date()
+        _ms1, _me1 = month_range(_td1)
+        _recent_exp = load_expenses(user_id, _ms1, _me1)
+        if not _recent_exp.empty:
+            _recent = _recent_exp.sort_values(["日付", "ID"], ascending=[False, False]).head(3)
+            st.markdown("#### 🕘 直近の経費")
+            for _r in _recent.itertuples(index=False):
+                st.caption(f"{_r.日付}｜{_r.支払先}｜{_r.カテゴリ}｜{yen(_r.円換算)}")
+    else:
         with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
             render_recent_expenses_edit_delete(user_id, start, end, limit=3)
-    
-    # 経費追加後に「結果を見る」ボタンを表示（経費一覧位置）
-    if st.session_state.get("step") == "expense_done":
-        with st.container(border=True):
-            if st.button("📊 結果を見る", type="primary", use_container_width=True, key="view_results_btn"):
-                st.session_state["step"] = "result"  # step制：結果表示へ
-                st.session_state["show_results_section"] = True
-                st.session_state["scroll_to"] = "results-section"  # 結果セクションへスクロール
-                st.rerun()
 
     # =========================================================
-    # 結果セクション表示（step制で制御）
+    # FIX: 結果セクション（ゲスト：常時表示 / ログイン後：後段で詳細）
     # =========================================================
-    is_guest = st.session_state.get("is_guest", False)
-    current_step = st.session_state.get("step", "income")
-    
-    # 結果セクション用アンカーを常設（表示有無に関わらずDOMに存在させる）
     st.markdown('<div id="results-section"></div>', unsafe_allow_html=True)
-    
-    # stepが"result"の場合、または既存のshow_results_sectionフラグが立っている場合に結果を表示
-    if is_guest and (current_step == "result" or st.session_state.get("show_results_section", False)):
-        st.markdown("---")
-        # ミニ結果（最上部に大きく表示）
-        today = today_date()
-        m_start, m_end = month_range(today)
-        m_earn = load_earnings(user_id, m_start, m_end)
-        m_exp = load_expenses(user_id, m_start, m_end)
-        
-        income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
-        expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
-        profit = income - expense
-        
+
+    if is_guest:
+        # FIX: ゲストは常に結果カードを表示（step 制を廃止）
+        _td2 = today_date()
+        _ms2, _me2 = month_range(_td2)
+        _m_earn = load_earnings(user_id, _ms2, _me2)
+        _m_exp = load_expenses(user_id, _ms2, _me2)
+
+        _income = float(_m_earn["円換算"].sum()) if not _m_earn.empty else 0.0
+        _expense = float(_m_exp["円換算"].sum()) if not _m_exp.empty else 0.0
+        _profit = _income - _expense
+
         with st.container(border=True):
             st.markdown("### 📊 結果（今月の収支）")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("収益", yen(income), delta=None)
-            with col2:
-                st.metric("経費", yen(expense), delta=None)
-            with col3:
-                profit_color = "#2e7d32" if profit >= 0 else "#c62828"
+            _rc1, _rc2, _rc3 = st.columns(3)
+            with _rc1:
+                st.metric("収益", yen(_income), delta=None)
+            with _rc2:
+                st.metric("経費", yen(_expense), delta=None)
+            with _rc3:
+                _pcolor = "#2e7d32" if _profit >= 0 else "#c62828"
                 st.markdown(
-                    f"<div style='text-align: center;'><div style='font-size: 12px; color: var(--rn-subtext); margin-bottom: 4px;'>利益</div><div style='font-size: 28px; font-weight: 900; color: {profit_color};'>{yen(profit)}</div></div>",
-                    unsafe_allow_html=True
+                    f"<div style='text-align: center;'>"
+                    f"<div style='font-size: 12px; color: var(--rn-subtext); margin-bottom: 4px;'>利益</div>"
+                    f"<div style='font-size: 28px; font-weight: 900; color: {_pcolor};'>{yen(_profit)}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
                 )
-            
-            if profit < 0:
-                st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
-            else:
-                st.success("✅ 今月は黒字です")
+            if _income > 0 or _expense > 0:
+                if _profit < 0:
+                    st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
+                else:
+                    st.success("✅ 今月は黒字です")
 
-    # ログイン後のみ表示（ゲスト時は非表示）
-    is_guest = st.session_state.get("is_guest", False)
-    if not is_guest:
+        # FIX: 成功メッセージを結果カードの下に表示（1回のみ・次操作で消える）
+        _msg = st.session_state.pop("success_msg", None)
+        if _msg:
+            st.success(_msg)
+
+    else:
+        # =========================================================
+        # ログイン後のみ表示: 一覧・編集・今月の状況・サマリー・資産
+        # =========================================================
+        earn_df = load_earnings(user_id, start, end)
+        exp_df = load_expenses(user_id, start, end)
+
         with st.expander("🧾 収益一覧（編集・削除）", expanded=False):
-            earn_df = load_earnings(user_id, start, end)
-            exp_df = load_expenses(user_id, start, end)
-
-            # -------------------------
-            # 収益一覧
-            # -------------------------
             st.markdown("##### 収益一覧")
             if earn_df.empty:
                 st.info("この期間の収益データはありません。")
@@ -2441,146 +2213,70 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     use_container_width=True,
                     hide_index=True,
                 )
-
-                earn_df2 = earn_df.copy()
-                earn_df2["ID"] = earn_df2["ID"].astype(int)
-
-                earn_labels = {
+                _earn_df2 = earn_df.copy()
+                _earn_df2["ID"] = _earn_df2["ID"].astype(int)
+                _earn_labels = {
                     int(r.ID): f"ID {int(r.ID)}｜{r.日付}｜{r.プラットフォーム}｜{r.カテゴリ}｜{yen(r.円換算)}"
-                    for r in earn_df2.itertuples(index=False)
+                    for r in _earn_df2.itertuples(index=False)
                 }
-                earn_ids = list(earn_labels.keys())
-
-                chosen_id = st.selectbox(
+                _earn_ids = list(_earn_labels.keys())
+                _chosen_eid = st.selectbox(
                     "編集/削除する収益を選択",
-                    options=earn_ids,
-                    format_func=lambda x: earn_labels[x],
-                    key="pick_earn_id",
+                    options=_earn_ids,
+                    format_func=lambda x: _earn_labels[x],
+                    key=ui_key("list", "pick_earn"),
                 )
-
-                colA, colB = st.columns(2)
-                with colA:
-                    if st.button("この収益を編集", key=f"btn_open_edit_earn_{chosen_id}"):
-                        st.session_state["editing_earning_id"] = int(chosen_id)
+                _colA, _colB = st.columns(2)
+                with _colA:
+                    if st.button("この収益を編集", key=ui_key("list", f"edit_earn_{_chosen_eid}")):
+                        st.session_state["editing_earning_id"] = int(_chosen_eid)
                         st.rerun()
-                with colB:
-                    if st.button("この収益を削除", key=f"btn_del_earn_{chosen_id}"):
-                        delete_earning(user_id, int(chosen_id))
+                with _colB:
+                    if st.button("この収益を削除", key=ui_key("list", f"del_earn_{_chosen_eid}")):
+                        delete_earning(user_id, int(_chosen_eid))
                         st.success("削除しました。")
                         st.rerun()
-    # =========================
-    # 収益編集フォーム（ログイン後のみ）
-    # =========================
-    is_guest = st.session_state.get("is_guest", False)
-    if not is_guest and "editing_earning_id" in st.session_state:
-        eid = st.session_state["editing_earning_id"]
 
-        row = load_earnings(user_id, start, end)
-        row = row[row["ID"] == eid]
+        # FIX: 収益編集フォーム（キーを edit_earn__ に統一）
+        if "editing_earning_id" in st.session_state:
+            _eid = st.session_state["editing_earning_id"]
+            _erow = load_earnings(user_id, start, end)
+            _erow = _erow[_erow["ID"] == _eid]
+            if _erow.empty:
+                st.error("編集対象の収益が見つかりません")
+            else:
+                _rr = _erow.iloc[0]
+                st.markdown("### ✏️ 収益を編集")
+                with st.container(border=True):
+                    _ec1, _ec2, _ec3, _ec4, _ec5, _ec6 = st.columns(6)
+                    with _ec1:
+                        _ed_day = st.date_input("日付", value=date.fromisoformat(_rr["日付"]), key=ui_key("edit_earn", f"day_{_eid}"))
+                    with _ec2:
+                        _ed_plat = st.text_input("プラットフォーム", value=_rr["プラットフォーム"], key=ui_key("edit_earn", f"plat_{_eid}"))
+                    with _ec3:
+                        _ed_cat = st.text_input("カテゴリ", value=_rr["カテゴリ"], key=ui_key("edit_earn", f"cat_{_eid}"))
+                    with _ec4:
+                        _ed_amt = st.number_input("金額", min_value=0, value=int(_rr["金額"]), step=1, format="%d", key=ui_key("edit_earn", f"amt_{_eid}"))
+                    with _ec5:
+                        _ecur_code = _rr.get("通貨コード") or "JPY"
+                        _eidx = CURRENCY_OPTIONS.index(_ecur_code) if _ecur_code in CURRENCY_OPTIONS else 0
+                        _ed_cur = st.selectbox("通貨", options=CURRENCY_OPTIONS, index=_eidx, format_func=currency_ja, key=ui_key("edit_earn", f"cur_{_eid}"))
+                    with _ec6:
+                        _ed_memo = st.text_input("メモ", value=str(_rr["メモ"] or ""), key=ui_key("edit_earn", f"memo_{_eid}"))
+                    _eb1, _eb2 = st.columns(2)
+                    with _eb1:
+                        if st.button("保存（収益）", key=ui_key("edit_earn", f"save_{_eid}")):
+                            update_earning(user_id, _eid, _ed_day, _ed_plat, _ed_cat, _ed_cur, int(_ed_amt), _ed_memo)
+                            st.session_state.pop("editing_earning_id")
+                            st.success("収益を更新しました")
+                            st.rerun()
+                    with _eb2:
+                        if st.button("キャンセル", key=ui_key("edit_earn", f"cancel_{_eid}")):
+                            st.session_state.pop("editing_earning_id")
+                            st.rerun()
+            st.markdown("---")
 
-        if row.empty:
-            st.error("編集対象の収益が見つかりません")
-        else:
-            rr = row.iloc[0]
-
-            st.markdown("### ✏️ 収益を編集")
-
-            with st.container(border=True):
-                c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-                # 日付
-                with c1:
-                    e_day = st.date_input(
-                        "日付",
-                        value=date.fromisoformat(rr["日付"]),
-                        key=f"edit_e_day_{eid}",
-                    )
-
-                # プラットフォーム
-                with c2:
-                    e_platform = st.text_input(
-                        "プラットフォーム",
-                        value=rr["プラットフォーム"],
-                        key=f"edit_e_platform_{eid}",
-                    )
-
-                # カテゴリ
-                with c3:
-                    e_cat = st.text_input(
-                        "カテゴリ",
-                        value=rr["カテゴリ"],
-                        key=f"edit_e_cat_{eid}",
-                    )
-
-                # 金額（★少数点なし）
-                with c4:
-                    e_amt = st.number_input(
-                        "金額",
-                        min_value=0,
-                        value=int(rr["金額"]),
-                        step=1,
-                        format="%d",
-                        key=f"edit_e_amt_{eid}",
-                    )
-
-                # 通貨（★日本語表示）
-                with c5:
-                    cur_code = rr.get("通貨コード") or "JPY"
-                    idx = (
-                        CURRENCY_OPTIONS.index(cur_code)
-                        if cur_code in CURRENCY_OPTIONS
-                        else 0
-                    )
-
-                    e_cur = st.selectbox(
-                        "通貨",
-                        options=CURRENCY_OPTIONS,
-                        index=idx,
-                        format_func=currency_ja,  # ← 日本語表示
-                        key=f"edit_e_cur_{eid}",
-                    )
-
-                # メモ
-                with c6:
-                    e_memo = st.text_input(
-                        "メモ",
-                        value=str(rr["メモ"] or ""),
-                        key=f"edit_e_memo_{eid}",
-                    )
-
-                # ボタン
-                b1, b2 = st.columns(2)
-
-                with b1:
-                    if st.button("保存（収益）", key=f"save_earn_{eid}"):
-                        update_earning(
-                            user_id,
-                            eid,
-                            e_day,
-                            e_platform,
-                            e_cat,
-                            e_cur,
-                            int(e_amt),  # 念のため int
-                            e_memo,
-                        )
-                        st.session_state.pop("editing_earning_id")
-                        st.success("収益を更新しました")
-                        st.rerun()
-
-                with b2:
-                    if st.button("キャンセル", key=f"cancel_earn_{eid}"):
-                        st.session_state.pop("editing_earning_id")
-                        st.rerun()
-
-        st.markdown("---")
-
-    # ログイン後のみ表示（ゲスト時は非表示）
-    is_guest = st.session_state.get("is_guest", False)
-    if not is_guest:
         with st.expander("🧾 経費一覧（編集・削除）", expanded=False):
-            # -------------------------
-            # 経費一覧
-            # -------------------------
             st.markdown("##### 経費一覧")
             if exp_df.empty:
                 st.info("この期間の経費データはありません。")
@@ -2590,168 +2286,138 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     use_container_width=True,
                     hide_index=True,
                 )
-
-                exp_df2 = exp_df.copy()
-                exp_df2["ID"] = exp_df2["ID"].astype(int)
-
-                exp_labels = {
+                _exp_df2 = exp_df.copy()
+                _exp_df2["ID"] = _exp_df2["ID"].astype(int)
+                _exp_labels = {
                     int(r.ID): f"ID {int(r.ID)}｜{r.日付}｜{r.支払先}｜{r.カテゴリ}｜{yen(r.円換算)}"
-                    for r in exp_df2.itertuples(index=False)
+                    for r in _exp_df2.itertuples(index=False)
                 }
-                exp_ids = list(exp_labels.keys())
-
-                chosen_exp_id = st.selectbox(
+                _exp_ids = list(_exp_labels.keys())
+                _chosen_xid = st.selectbox(
                     "編集/削除する経費を選択",
-                    options=exp_ids,
-                    format_func=lambda x: exp_labels[x],
-                    key="pick_exp_id",
+                    options=_exp_ids,
+                    format_func=lambda x: _exp_labels[x],
+                    key=ui_key("list", "pick_exp"),
                 )
-
-                colA, colB = st.columns(2)
-                with colA:
-                    if st.button("この経費を編集", key=f"btn_open_edit_exp_{chosen_exp_id}"):
-                        st.session_state["editing_expense_id"] = int(chosen_exp_id)
+                _xcolA, _xcolB = st.columns(2)
+                with _xcolA:
+                    if st.button("この経費を編集", key=ui_key("list", f"edit_exp_{_chosen_xid}")):
+                        st.session_state["editing_expense_id"] = int(_chosen_xid)
                         st.rerun()
-                with colB:
-                    if st.button("この経費を削除", key=f"btn_del_exp_{chosen_exp_id}"):
-                        delete_expense(user_id, int(chosen_exp_id))
+                with _xcolB:
+                    if st.button("この経費を削除", key=ui_key("list", f"del_exp_{_chosen_xid}")):
+                        delete_expense(user_id, int(_chosen_xid))
                         st.success("削除しました。")
                         st.rerun()
 
-    # =========================
-    # 経費編集フォーム（ログイン後のみ）
-    # =========================
-    is_guest = st.session_state.get("is_guest", False)
-    if not is_guest and "editing_expense_id" in st.session_state:
-        eid = st.session_state["editing_expense_id"]
+        # FIX: 経費編集フォーム（キーを edit_exp__ に統一）
+        if "editing_expense_id" in st.session_state:
+            _xid = st.session_state["editing_expense_id"]
+            _xrow = load_expenses(user_id, start, end)
+            _xrow = _xrow[_xrow["ID"] == _xid]
+            if _xrow.empty:
+                st.error("編集対象の経費が見つかりません")
+            else:
+                _xrr = _xrow.iloc[0]
+                st.markdown("### ✏️ 経費を編集")
+                with st.container(border=True):
+                    _xc1, _xc2, _xc3, _xc4, _xc5, _xc6 = st.columns(6)
+                    with _xc1:
+                        _xd_day = st.date_input("日付", value=date.fromisoformat(_xrr["日付"]), key=ui_key("edit_exp", f"day_{_xid}"))
+                    with _xc2:
+                        _xd_vendor = st.text_input("支払先", value=_xrr["支払先"], key=ui_key("edit_exp", f"vendor_{_xid}"))
+                    with _xc3:
+                        _xd_cat = st.text_input("カテゴリ", value=_xrr["カテゴリ"], key=ui_key("edit_exp", f"cat_{_xid}"))
+                    with _xc4:
+                        _xd_amt = st.number_input("金額", min_value=0, value=int(_xrr["金額"]), step=1, format="%d", key=ui_key("edit_exp", f"amt_{_xid}"))
+                    with _xc5:
+                        _xcur_code = (_xrr.get("通貨コード") or "JPY")
+                        _xidx = CURRENCY_OPTIONS.index(_xcur_code) if _xcur_code in CURRENCY_OPTIONS else 0
+                        _xd_cur = st.selectbox("通貨", options=CURRENCY_OPTIONS, index=_xidx, format_func=currency_ja, key=ui_key("edit_exp", f"cur_{_xid}"))
+                    with _xc6:
+                        _xd_memo = st.text_input("メモ", value=str(_xrr["メモ"] or ""), key=ui_key("edit_exp", f"memo_{_xid}"))
+                    _xb1, _xb2 = st.columns(2)
+                    with _xb1:
+                        if st.button("保存（経費）", key=ui_key("edit_exp", f"save_{_xid}")):
+                            update_expense(user_id, _xid, _xd_day, _xd_vendor, _xd_cat, _xd_cur, _xd_amt, _xd_memo)
+                            st.session_state.pop("editing_expense_id", None)
+                            st.success("更新しました")
+                            st.rerun()
+                    with _xb2:
+                        if st.button("キャンセル", key=ui_key("edit_exp", f"cancel_{_xid}")):
+                            st.session_state.pop("editing_expense_id", None)
+                            st.rerun()
 
-        row = load_expenses(user_id, start, end)
-        row = row[row["ID"] == eid]
+        st.markdown("---")
 
-        if row.empty:
-            st.error("編集対象の経費が見つかりません")
-        else:
-            rr = row.iloc[0]
-            st.markdown("### ✏️ 経費を編集")
+        # FIX: 成功メッセージをこの位置に表示（ログイン後）
+        _msg = st.session_state.pop("success_msg", None)
+        if _msg:
+            st.success(_msg)
 
-            with st.container(border=True):
-                c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-                with c1:
-                    e_day = st.date_input("日付", value=date.fromisoformat(rr["日付"]), key=f"exp_day_{eid}")
-                with c2:
-                    e_vendor = st.text_input("支払先", value=rr["支払先"], key=f"exp_vendor_{eid}")
-                with c3:
-                    e_cat = st.text_input("カテゴリ", value=rr["カテゴリ"], key=f"exp_cat_{eid}")
-                with c4:
-                    e_amt = st.number_input(
-                        "金額",
-                        min_value=0,
-                        value=int(rr["金額"]),
-                        step=1,
-                        format="%d",
-                        key=f"exp_amt_{eid}",
-                    )
-                with c5:
-                    cur_code = (rr.get("通貨コード") or "JPY")
-                    idx = CURRENCY_OPTIONS.index(cur_code) if cur_code in CURRENCY_OPTIONS else 0
-                    e_cur = st.selectbox(
-                        "通貨",
-                        options=CURRENCY_OPTIONS,
-                        index=idx,
-                        format_func=currency_ja,
-                        key=f"exp_cur_{eid}",
-                    )
-                with c6:
-                    e_memo = st.text_input("メモ", value=str(rr["メモ"] or ""), key=f"exp_memo_{eid}")
-
-                b1, b2 = st.columns(2)
-                with b1:
-                    if st.button("保存（経費）", key=f"exp_save_{eid}"):
-                        update_expense(user_id, eid, e_day, e_vendor, e_cat, e_cur, e_amt, e_memo)
-                        st.session_state.pop("editing_expense_id", None)
-                        st.success("更新しました")
-                        st.rerun()
-                with b2:
-                    if st.button("キャンセル", key=f"exp_cancel_{eid}"):
-                        st.session_state.pop("editing_expense_id", None)
-                        st.rerun()
-    st.markdown("---")
-
-    # -------------------------
-    # 今月の状況（矢印・色を自前HTMLで確実に）
-    # 未ログイン時は表示しない（UX簡素化）
-    # -------------------------
-    is_guest = st.session_state.get("is_guest", False)
-    if not is_guest:
+        # -------------------------
+        # 今月の状況（矢印・色を自前HTMLで確実に）
+        # -------------------------
         st.caption("※ここは「今月だけ」の速報。下の「サマリー」は、左サイドバーで選んだ期間の集計です。")
 
-        today = today_date()
-        m_start, m_end = month_range(today)
-        m_earn = load_earnings(user_id, m_start, m_end)
-        m_exp = load_expenses(user_id, m_start, m_end)
+        _td3 = today_date()
+        _ms3, _me3 = month_range(_td3)
+        _m_earn = load_earnings(user_id, _ms3, _me3)
+        _m_exp = load_expenses(user_id, _ms3, _me3)
 
-        income = float(m_earn["円換算"].sum()) if not m_earn.empty else 0.0
-        expense = float(m_exp["円換算"].sum()) if not m_exp.empty else 0.0
-        profit = income - expense
+        _income = float(_m_earn["円換算"].sum()) if not _m_earn.empty else 0.0
+        _expense = float(_m_exp["円換算"].sum()) if not _m_exp.empty else 0.0
+        _profit = _income - _expense
 
-        # 前月
-        prev_last_day = m_start - timedelta(days=1)
-        prev_start, prev_end = month_range(prev_last_day)
-        p_earn = load_earnings(user_id, prev_start, prev_end)
-        p_exp = load_expenses(user_id, prev_start, prev_end)
-        prev_profit = (float(p_earn["円換算"].sum()) if not p_earn.empty else 0.0) - (float(p_exp["円換算"].sum()) if not p_exp.empty else 0.0)
+        _prev_last_day = _ms3 - timedelta(days=1)
+        _prev_start, _prev_end = month_range(_prev_last_day)
+        _p_earn = load_earnings(user_id, _prev_start, _prev_end)
+        _p_exp = load_expenses(user_id, _prev_start, _prev_end)
+        _prev_profit = (float(_p_earn["円換算"].sum()) if not _p_earn.empty else 0.0) - (float(_p_exp["円換算"].sum()) if not _p_exp.empty else 0.0)
 
-        delta_profit = profit - prev_profit
+        _delta_profit = _profit - _prev_profit
 
-        remain_to_goal = max(0.0, float(goal) - float(profit))
-        achieve = 0.0
+        _remain_to_goal = max(0.0, float(goal) - float(_profit))
+        _achieve = 0.0
         if float(goal) > 0:
-            achieve = max(0.0, (profit / float(goal)) * 100.0)
+            _achieve = max(0.0, (_profit / float(goal)) * 100.0)
 
-        r1c1, r1c2, r1c3 = st.columns(3)
-        r1c1.metric("収益", yen(income))
-        r1c2.metric("経費", yen(expense))
-        r1c3.metric("利益", yen(profit))
+        _r1c1, _r1c2, _r1c3 = st.columns(3)
+        _r1c1.metric("収益", yen(_income))
+        _r1c2.metric("経費", yen(_expense))
+        _r1c3.metric("利益", yen(_profit))
 
-        r2c1, r2c2 = st.columns(2)
-        r2c1.metric("目標まで（利益）", yen(remain_to_goal))
-        r2c2.metric("達成率（利益）", f"{int(achieve)}%")
+        _r2c1, _r2c2 = st.columns(2)
+        _r2c1.metric("目標まで（利益）", yen(_remain_to_goal))
+        _r2c2.metric("達成率（利益）", f"{int(_achieve)}%")
 
         st.markdown(
-            f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(delta_profit, prev_profit, big=True)}</div>",
+            f"<div style='margin-top:-8px; font-size:15px;'>前月比：{html_delta_badge(_delta_profit, _prev_profit, big=True)}</div>",
             unsafe_allow_html=True,
         )
 
-        if profit < 0:
+        if _profit < 0:
             st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
         else:
             st.success("✅ 今月は黒字です")
 
         st.markdown("---")
 
-
-    # -------------------------
-    # サマリー（選択した期間）
-    # 未ログイン時は表示しない（UX簡素化）
-    # -------------------------
-    is_guest = st.session_state.get("is_guest", False)
-    if not is_guest:
+        # -------------------------
+        # サマリー（選択した期間）
+        # -------------------------
         st.subheader("📌 サマリー（選択した期間）")
         st.caption("※左サイドバーで選んだ期間（今月/先月/直近30日/カスタム）の集計です。")
 
-        earn_df = load_earnings(user_id, start, end)
-        exp_df = load_expenses(user_id, start, end)
+        _period_income = float(earn_df["円換算"].sum()) if not earn_df.empty else 0.0
+        _period_expense = float(exp_df["円換算"].sum()) if not exp_df.empty else 0.0
+        _period_profit = _period_income - _period_expense
 
-        period_income = float(earn_df["円換算"].sum()) if not earn_df.empty else 0.0
-        period_expense = float(exp_df["円換算"].sum()) if not exp_df.empty else 0.0
-        period_profit = period_income - period_expense
-
-        s1, s2, s3, s4 = st.columns(4)
-        s1.metric("期間内 収益（円）", yen(period_income))
-        s2.metric("期間内 経費（円）", yen(period_expense))
-        s3.metric("期間内 利益（円）", yen(period_profit))
-        s4.metric("固定費（設定・円）", yen(fixed))
+        _s1, _s2, _s3, _s4 = st.columns(4)
+        _s1.metric("期間内 収益（円）", yen(_period_income))
+        _s2.metric("期間内 経費（円）", yen(_period_expense))
+        _s3.metric("期間内 利益（円）", yen(_period_profit))
+        _s4.metric("固定費（設定・円）", yen(fixed))
 
         st.markdown("---")
 
@@ -2760,34 +2426,34 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
         st.markdown("---")
 
-    # AI分析セクション用アンカー（常設）
+    # AI分析セクション（ゲスト・ログイン両方で表示）
     st.markdown('<div id="analysis-section"></div>', unsafe_allow_html=True)
-
-    # AI（分析＋自由質問）
     render_ai_section(user_id, goal, fixed, user_key)
 
     # =========================================================
-    # ゲスト用CTA（最後に「ログインはこちら」を目立つ位置に表示）
+    # FIX: ゲスト用ログインCTA（収益+経費入力後に表示）
     # =========================================================
-    is_guest = st.session_state.get("is_guest", False)
     if is_guest:
-        st.markdown("---")
-        st.markdown('<div id="login-cta-section"></div>', unsafe_allow_html=True)
-        with st.container(border=True):
-            st.markdown("### 🎉 試用完了！")
-            st.markdown(
-                """
-                ログインすると以下が使えます：
-                - 📊 データ保存（入力した収益・経費を永続化）
-                - 📈 期間比較（今月/先月/任意期間の比較）
-                - 💰 固定費管理（毎月の固定費を設定）
-                - 📉 資産推移（資産の増減をグラフで可視化）
-                """
-            )
-            if st.button("🔐 ログインはこちら（データ保存）", type="primary", use_container_width=True, key="guest_login_cta"):
-                st.info("👈 左のサイドバー（>>）を開いて、「🔐 ログイン（既存ユーザー）」から、ユーザー名とPINを設定してください。")
-
-    st.success("狙い：入力→編集/削除→可視化→AI提案が1画面で回る")
+        _td4 = today_date()
+        _ms4, _me4 = month_range(_td4)
+        _has_earn = not load_earnings(user_id, _ms4, _me4).empty
+        _has_exp = not load_expenses(user_id, _ms4, _me4).empty
+        if _has_earn and _has_exp:
+            st.markdown("---")
+            st.markdown('<div id="login-cta-section"></div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown("### データを保存するにはログイン")
+                st.markdown(
+                    """
+                    ログインすると以下が使えます：
+                    - 📊 データ保存（入力した収益・経費を永続化）
+                    - 📈 期間比較（今月/先月/任意期間の比較）
+                    - 💰 固定費管理（毎月の固定費を設定）
+                    - 📉 資産推移（資産の増減をグラフで可視化）
+                    """
+                )
+                if st.button("🔐 ログインはこちら", type="primary", use_container_width=True, key=ui_key("cta", "login")):
+                    st.info("👈 左のサイドバー（>>）を開いて、「🔐 ログイン（既存ユーザー）」から、ユーザー名とPINを設定してください。")
 
     # =========================================================
     # ページ末尾でスクロール要求があれば1回だけ実行
@@ -2987,3 +2653,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
