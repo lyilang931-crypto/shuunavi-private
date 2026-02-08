@@ -1950,18 +1950,18 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
         with st.container(border=True):
             st.markdown("### 🎯 まずは収支を入力してみましょう")
-            _pc1, _pc2, _pc3 = st.columns(3)
-            with _pc1:
+            _pc_left, _pc_right = st.columns(2)
+            with _pc_left:
                 st.markdown("✅ 収益入力" if _step1 else "**① 収益入力**")
-            with _pc2:
                 if _step2:
                     st.markdown("✅ 経費入力")
                 elif _step1:
                     st.markdown("**② 経費入力**")
                 else:
                     st.markdown("② 経費入力")
-            with _pc3:
+            with _pc_right:
                 st.markdown("✅ 結果確認" if (_step1 and _step2) else "③ 結果確認")
+                st.markdown("④ AI分析")
 
     # =========================================================
     # 収益セクション
@@ -2643,5 +2643,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
