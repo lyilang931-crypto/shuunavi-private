@@ -1275,6 +1275,13 @@ def render_sidebar_after_login(user_id: int):
 
     st.sidebar.markdown("---")
 
+    if is_guest:
+        # FIX: 未ログイン（ゲスト）はログイン関連のみ表示
+        _settings = get_user_settings(user_id)
+        _today = today_date()
+        _s, _e = month_range(_today)
+        return _s, _e, float(_settings["monthly_goal_jpy"]), float(_settings["fixed_cost_jpy"]), ""
+
     # 期間
     start, end, _label = period_selector()
 
@@ -1980,25 +1987,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     key=ui_key("ginc", "cat"),
                 )
 
-            with st.expander("📝 詳細設定（任意）", expanded=False):
-                _g_e_day = st.date_input(
-                    "日付", value=_g_e_day, min_value=MIN_DAY,
-                    key=ui_key("ginc", "day"),
-                )
-                _g_e_platform = pick_with_other(
-                    "プラットフォーム", DEFAULT_PLATFORMS,
-                    key=ui_key("ginc", "plat"),
-                )
-                _g_e_memo = st.text_input("メモ", value="", key=ui_key("ginc", "memo"))
-                _fx = get_fx_rates()
-                st.caption(f"円換算（概算）：{yen(compute_jpy(_g_e_amt, 'JPY', _fx))}（1円=1円）")
-
             _g_e_cur = "JPY"
 
             if st.button("収益を追加", key=ui_key("ginc", "submit"), use_container_width=True):
                 insert_earning(user_id, _g_e_day, _g_e_platform, _g_e_cat, _g_e_cur, float(_g_e_amt), _g_e_memo)
-                # FIX: 成功メッセージを結果カード下に表示
-                st.session_state["success_msg"] = "✅ 収益を1件追加しました！"
+                # FIX: 収益フォーム直下で1回だけ成功表示
+                st.session_state["income_success_once"] = True
                 st.session_state["scroll_to"] = "expense-section"
                 st.rerun()
         else:
@@ -2042,7 +2036,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
             if st.button("収益を追加", key=ui_key("linc", "submit"), use_container_width=True):
                 insert_earning(user_id, _l_e_day, _l_e_platform, _l_e_cat, _l_e_cur, float(_l_e_amt), _l_e_memo)
-                st.session_state["success_msg"] = "✅ 収益を1件追加しました！"
+                st.session_state["income_success_once"] = True
                 st.session_state["scroll_to"] = "expense-section"
                 st.rerun()
 
@@ -2050,6 +2044,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     if not is_guest:
         with st.expander("🕘 直近の収益（編集/削除）", expanded=False):
             render_recent_earnings_edit_delete(user_id, start, end, limit=3)
+
+    # FIX: 収益追加の成功メッセージはここで1回だけ表示
+    _income_success_once = st.session_state.pop("income_success_once", False)
+    if _income_success_once:
+        with st.container(border=True):
+            st.success("✅ 収益を1件追加しました！")
 
     # =========================================================
     # 経費セクション
@@ -2074,16 +2074,6 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     "カテゴリ（必須）", DEFAULT_EXP_CATEGORIES,
                     key=ui_key("gexp", "cat"),
                 )
-
-            with st.expander("📝 詳細設定（任意）", expanded=False):
-                _g_x_day = st.date_input(
-                    "日付", value=_g_x_day, min_value=MIN_DAY,
-                    key=ui_key("gexp", "day"),
-                )
-                _g_x_vendor = st.text_input("支払先", value="", key=ui_key("gexp", "vendor"))
-                _g_x_memo = st.text_input("メモ", value="", key=ui_key("gexp", "memo"))
-                _fx = get_fx_rates()
-                st.caption(f"円換算（概算）：{yen(compute_jpy(_g_x_amt, 'JPY', _fx))}（1円=1円）")
 
             _g_x_cur = "JPY"
             if not _g_x_vendor or _g_x_vendor.strip() == "":
@@ -2653,4 +2643,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
