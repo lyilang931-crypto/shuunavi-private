@@ -2081,7 +2081,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
             if st.button("経費を追加", key=ui_key("gexp", "submit"), use_container_width=True):
                 insert_expense(user_id, _g_x_day, _g_x_vendor, _g_x_cat, _g_x_cur, float(_g_x_amt), _g_x_memo)
-                st.session_state["success_msg"] = "✅ 経費を1件追加しました！"
+                st.session_state["expense_success_once"] = True
                 st.session_state["scroll_to"] = "expenses-list-section"
                 st.rerun()
         else:
@@ -2122,7 +2122,7 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
 
             if st.button("経費を追加", key=ui_key("lexp", "submit"), use_container_width=True):
                 insert_expense(user_id, _l_x_day, _l_x_vendor, _l_x_cat, _l_x_cur, float(_l_x_amt), _l_x_memo)
-                st.session_state["success_msg"] = "✅ 経費を1件追加しました！"
+                st.session_state["expense_success_once"] = True
                 st.session_state["scroll_to"] = "expenses-list-section"
                 st.rerun()
 
@@ -2142,6 +2142,12 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
     else:
         with st.expander("🕘 直近の経費（編集/削除）", expanded=False):
             render_recent_expenses_edit_delete(user_id, start, end, limit=3)
+
+    # FIX: 経費追加の成功メッセージはここで1回だけ表示
+    _expense_success_once = st.session_state.pop("expense_success_once", False)
+    if _expense_success_once:
+        with st.container(border=True):
+            st.success("✅ 経費を1件追加しました！")
 
     # =========================================================
     # FIX: 結果セクション（ゲスト：常時表示 / ログイン後：後段で詳細）
@@ -2180,11 +2186,6 @@ def render_main(user_id: int, start: date, end: date, goal: float, fixed: float,
                     st.warning("⚠️ 今月は赤字です（経費が収益を上回っています）")
                 else:
                     st.success("✅ 今月は黒字です")
-
-        # FIX: 成功メッセージを結果カードの下に表示（1回のみ・次操作で消える）
-        _msg = st.session_state.pop("success_msg", None)
-        if _msg:
-            st.success(_msg)
 
     else:
         # =========================================================
@@ -2643,6 +2644,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
